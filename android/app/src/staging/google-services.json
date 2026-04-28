@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "649722549015",
+    "project_id": "mini-kickers-7b71c",
+    "storage_bucket": "mini-kickers-7b71c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:649722549015:android:80ca299f25a4faad1d1d52",
+        "android_client_info": {
+          "package_name": "com.masterly.minikickers"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyASmgRKWlOhZFW-3e1p--ZRZ6oMxqXueVo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
