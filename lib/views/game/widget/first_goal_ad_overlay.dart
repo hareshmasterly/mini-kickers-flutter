@@ -53,10 +53,7 @@ class _FirstGoalAdOverlayState extends State<FirstGoalAdOverlay>
     // 10-second auto-dismiss timer. Drives both the top progress bar
     // and the "Closes in Ns" label. Stopped (not reset) when the user
     // taps BUY so they can return from Amazon and still manually close.
-    _countdown = AnimationController(
-      vsync: this,
-      duration: _autoCloseAfter,
-    )
+    _countdown = AnimationController(vsync: this, duration: _autoCloseAfter)
       ..forward()
       ..addStatusListener((final AnimationStatus s) {
         if (s == AnimationStatus.completed && mounted && !_dismissing) {
@@ -103,8 +100,11 @@ class _FirstGoalAdOverlayState extends State<FirstGoalAdOverlay>
         final double maxCardHeight = cons.maxHeight - 24;
 
         return AnimatedBuilder(
-          animation:
-              Listenable.merge(<Listenable>[_entry, _ambient, _countdown]),
+          animation: Listenable.merge(<Listenable>[
+            _entry,
+            _ambient,
+            _countdown,
+          ]),
           builder: (final BuildContext context, final Widget? child) {
             final double t = Curves.easeOutCubic.transform(
               _entry.value.clamp(0.0, 1.0),
@@ -197,10 +197,7 @@ class _Card extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: <Color>[
-            Color(0xFF112418),
-            Color(0xFF06140C),
-          ],
+          colors: <Color>[Color(0xFF112418), Color(0xFF06140C)],
         ),
         borderRadius: BorderRadius.circular(28),
         border: Border.all(
@@ -313,12 +310,9 @@ class _TallBody extends StatelessWidget {
         const SizedBox(height: 18),
         _BuyButton(onTap: onBuy, pulse: pulse),
         const SizedBox(height: 8),
-        _LaterButton(onTap: onLater),
-        const SizedBox(height: 4),
-        _CountdownLabel(
-          value: countdownValue,
-          totalSeconds: autoCloseSeconds,
-        ),
+        // _LaterButton(onTap: onLater),
+        // const SizedBox(height: 4),
+        _CountdownLabel(value: countdownValue, totalSeconds: autoCloseSeconds),
       ],
     );
   }
@@ -326,6 +320,7 @@ class _TallBody extends StatelessWidget {
 
 class _Header extends StatelessWidget {
   const _Header({required this.ambient});
+
   final double ambient;
 
   @override
@@ -354,6 +349,7 @@ class _Header extends StatelessWidget {
 
 class _Body extends StatelessWidget {
   const _Body();
+
   @override
   Widget build(final BuildContext context) {
     return const Padding(
@@ -457,8 +453,8 @@ class _CompactBody extends StatelessWidget {
                       compact: true,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  _LaterButton(onTap: onLater, compact: true),
+                  // const SizedBox(width: 8),
+                  // _LaterButton(onTap: onLater, compact: true),
                 ],
               ),
               const SizedBox(height: 4),
@@ -486,9 +482,7 @@ class _Eyebrow extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.brandYellow.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.brandYellow.withValues(alpha: 0.5),
-        ),
+        border: Border.all(color: AppColors.brandYellow.withValues(alpha: 0.5)),
       ),
       child: Text(
         '⚽  GOAL SCORED!',
@@ -505,6 +499,7 @@ class _Eyebrow extends StatelessWidget {
 
 class _Headline extends StatelessWidget {
   const _Headline({required this.fontSize, this.align = TextAlign.center});
+
   final double fontSize;
   final TextAlign align;
 
@@ -544,7 +539,9 @@ class _Headline extends StatelessWidget {
 
 class _Subtitle extends StatelessWidget {
   const _Subtitle({this.align = TextAlign.center});
+
   final TextAlign align;
+
   @override
   Widget build(final BuildContext context) {
     return Text(
@@ -569,7 +566,9 @@ class _Subtitle extends StatelessWidget {
 /// landscape layouts.
 class _ProductHero extends StatelessWidget {
   const _ProductHero({required this.width});
+
   final double width;
+
   @override
   Widget build(final BuildContext context) {
     return Container(
@@ -611,6 +610,7 @@ class _BulletRow extends StatelessWidget {
     required this.text,
     this.fontSize = 13,
   });
+
   final IconData icon;
   final String text;
   final double fontSize;
@@ -643,6 +643,7 @@ class _BuyButton extends StatefulWidget {
     required this.pulse,
     this.compact = false,
   });
+
   final VoidCallback onTap;
   final double pulse;
   final bool compact;
@@ -677,10 +678,7 @@ class _BuyButtonState extends State<_BuyButton> {
               gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: <Color>[
-                  Color(0xFFFFC107),
-                  Color(0xFFFF9800),
-                ],
+                colors: <Color>[Color(0xFFFFC107), Color(0xFFFF9800)],
               ),
               borderRadius: BorderRadius.circular(32),
               border: Border.all(
@@ -689,9 +687,9 @@ class _BuyButtonState extends State<_BuyButton> {
               ),
               boxShadow: <BoxShadow>[
                 BoxShadow(
-                  color: const Color(0xFFFF9800).withValues(
-                    alpha: 0.55 + widget.pulse * 0.35,
-                  ),
+                  color: const Color(
+                    0xFFFF9800,
+                  ).withValues(alpha: 0.55 + widget.pulse * 0.35),
                   blurRadius: 18 + widget.pulse * 10,
                   spreadRadius: 1 + widget.pulse * 1.5,
                 ),
@@ -772,6 +770,7 @@ class _BuyButtonState extends State<_BuyButton> {
 
 class _LaterButton extends StatelessWidget {
   const _LaterButton({required this.onTap, this.compact = false});
+
   final VoidCallback onTap;
   final bool compact;
 
@@ -822,10 +821,7 @@ class _CountdownProgressBar extends StatelessWidget {
                 gradient: const LinearGradient(
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
-                  colors: <Color>[
-                    AppColors.limeBright,
-                    AppColors.brandYellow,
-                  ],
+                  colors: <Color>[AppColors.limeBright, AppColors.brandYellow],
                 ),
                 boxShadow: <BoxShadow>[
                   BoxShadow(
@@ -846,20 +842,20 @@ class _CountdownProgressBar extends StatelessWidget {
 /// "Closes in Ns" small caption below the buttons. Mirrors the web ad
 /// — gives users a visible countdown alongside the progress bar.
 class _CountdownLabel extends StatelessWidget {
-  const _CountdownLabel({
-    required this.value,
-    required this.totalSeconds,
-  });
+  const _CountdownLabel({required this.value, required this.totalSeconds});
 
   final double value;
   final int totalSeconds;
 
   @override
   Widget build(final BuildContext context) {
-    final int remaining =
-        (totalSeconds * (1 - value)).ceil().clamp(0, totalSeconds);
+    final int remaining = (totalSeconds * (1 - value)).ceil().clamp(
+      0,
+      totalSeconds,
+    );
     return Text(
       'Closes in ${remaining}s',
+      textAlign: .center,
       style: TextStyle(
         color: Colors.white.withValues(alpha: 0.5),
         fontSize: 10,

@@ -8,6 +8,7 @@ import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/team_colors.dart';
+import 'package:mini_kickers/utils/ad_manager.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/responsive.dart';
 import 'package:mini_kickers/views/game/widget/board_widget.dart';
@@ -37,6 +38,12 @@ class _GameScreenState extends State<GameScreen> {
   Widget build(final BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
+      // The team-setup dialog (opened from the coin-toss strip) is the
+      // only thing on this screen that summons a keyboard, and it lives
+      // in the Overlay above the Scaffold and handles its own keyboard
+      // accommodation. Letting the body resize would unnecessarily
+      // squeeze the coin-toss card / game board behind the dialog.
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: <Widget>[
           const _AmbientBackground(),
@@ -61,11 +68,14 @@ class _GameScreenState extends State<GameScreen> {
                 _shakeController.shake();
                 return;
               }
-              // Goal flash just ended — pop the promo card after EVERY
-              // goal (not just the first). Idempotent: if it's already
-              // open from a previous goal the user hasn't dismissed,
-              // re-asserting `true` is a no-op.
-              if (!_showGoalAd) {
+              // Goal flash just ended.
+              //   • Nth goal (when goal slot enabled) → paid interstitial
+              //   • Otherwise                         → Amazon promo overlay
+              // Cadence + toggles come from remote `app_settings`; see
+              // [AdManager.shouldShowGoalInterstitial].
+              if (AdManager.instance.shouldShowGoalInterstitial()) {
+                AdManager.instance.showInterstitial(reason: 'goal-nth');
+              } else if (!_showGoalAd) {
                 setState(() => _showGoalAd = true);
               }
             },

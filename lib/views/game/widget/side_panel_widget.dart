@@ -6,6 +6,7 @@ import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/team_colors.dart';
+import 'package:mini_kickers/utils/ad_manager.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/responsive.dart';
 import 'package:mini_kickers/views/game/widget/animated_score_box.dart';
@@ -269,9 +270,15 @@ class _ButtonsWidget extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: OutlinedButton(
-            onPressed: () {
+            onPressed: () async {
               AudioHelper.select();
-              context.read<GameBloc>().add(const ResetGameEvent());
+              // Mid-match restart interstitial. Gated remotely by
+              // `show_ads` + `show_interstitial_on_restart_game`;
+              // AdManager is also a no-op if no ad is loaded yet, so
+              // the user is never blocked.
+              final GameBloc bloc = context.read<GameBloc>();
+              await AdManager.instance.showRestartInterstitial();
+              bloc.add(const ResetGameEvent());
             },
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.muted,

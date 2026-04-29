@@ -1,14 +1,15 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/main.dart';
 import 'package:mini_kickers/routes/routes_name.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
+import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/flavors.dart';
+import 'package:mini_kickers/views/ads/banner_ad_widget.dart';
 import 'package:mini_kickers/views/home/widget/stadium_background.dart';
 import 'package:mini_kickers/views/settings/widget/palette_picker.dart';
 import 'package:mini_kickers/views/settings/widget/player_name_tile.dart';
@@ -52,7 +53,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           fit: StackFit.expand,
           children: <Widget>[
             const StadiumBackground(),
-            SafeArea(child: _buildContent(context)),
+            SafeArea(
+              bottom: MediaQuery.of(context).padding.bottom > 0 ? false : true,
+              child: _buildContent(context),
+            ),
           ],
         ),
       ),
@@ -61,7 +65,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildContent(final BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      padding: const EdgeInsets.only(left: 24, right: 24, top: 16),
       child: Column(
         children: <Widget>[
           _buildHeader(context),
@@ -141,8 +145,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SettingsSectionLabel(text: 'TEAMS'),
                   PalettePicker(
                     currentId: _settings.palette.id,
-                    onSelect: (final String id) =>
-                        _settings.setPalette(id),
+                    onSelect: (final String id) => _settings.setPalette(id),
                   ),
                   const SizedBox(height: 8),
                   PlayerNameTile(
@@ -160,11 +163,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   SettingsTile(
                     icon: Icons.menu_book_rounded,
                     title: 'Game Guide',
-                    subtitle:
-                        'Rules, features, FAQ and contact info',
+                    subtitle: 'Rules, features, FAQ and contact info',
                     iconColor: AppColors.blueLight,
-                    onTap: () => Navigator.of(context)
-                        .pushNamed(RouteName.guideScreen),
+                    onTap: () =>
+                        Navigator.of(context).pushNamed(RouteName.guideScreen),
                   ),
                   const SizedBox(height: 8),
                   SettingsTile(
@@ -180,6 +182,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
+          // Bottom banner ad — gated remotely by `show_ads` +
+          // `show_settings_banner`. The widget itself also fails silent
+          // if no ad loads, so layout is unchanged when the slot is on
+          // but unfilled. See [BannerAdWidget].
+          if (_settings.showAds && _settings.showSettingsBanner)
+            const Center(child: BannerAdWidget()),
         ],
       ),
     );
@@ -188,10 +196,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildHeader(final BuildContext context) {
     return Row(
       children: <Widget>[
-        _BackButton(onTap: () {
-          AudioHelper.select();
-          if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-        }),
+        _BackButton(
+          onTap: () {
+            AudioHelper.select();
+            if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+          },
+        ),
         const SizedBox(width: 14),
         Text(
           'SETTINGS',
@@ -222,11 +232,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _settings.setMusicEnabled(newValue);
     await AudioHelper.setMusicEnabled(enabled: newValue);
   }
-
 }
 
 class _Switch extends StatelessWidget {
   const _Switch({required this.value, required this.onChanged});
+
   final bool value;
   final ValueChanged<bool> onChanged;
 
@@ -248,6 +258,7 @@ class _Switch extends StatelessWidget {
 
 class _BackButton extends StatelessWidget {
   const _BackButton({required this.onTap});
+
   final VoidCallback onTap;
 
   @override
@@ -334,8 +345,9 @@ class _MatchDurationTile extends StatelessWidget {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: SettingsService.instance.availableMatchDurations
-                    .map((final ({int seconds, String label}) d) {
+                children: SettingsService.instance.availableMatchDurations.map((
+                  final ({int seconds, String label}) d,
+                ) {
                   final bool selected = d.seconds == current;
                   return GestureDetector(
                     onTap: () => onSelect(d.seconds),
@@ -359,7 +371,9 @@ class _MatchDurationTile extends StatelessWidget {
                         boxShadow: selected
                             ? <BoxShadow>[
                                 BoxShadow(
-                                  color: AppColors.accent.withValues(alpha: 0.5),
+                                  color: AppColors.accent.withValues(
+                                    alpha: 0.5,
+                                  ),
                                   blurRadius: 14,
                                   spreadRadius: 1,
                                 ),
@@ -386,4 +400,3 @@ class _MatchDurationTile extends StatelessWidget {
     );
   }
 }
-

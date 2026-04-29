@@ -3,9 +3,11 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:mini_kickers/data/models/faq.dart';
 import 'package:mini_kickers/data/services/faq_service.dart';
-import 'package:mini_kickers/theme/app_fonts.dart';
+import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
+import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
+import 'package:mini_kickers/views/ads/banner_ad_widget.dart';
 import 'package:mini_kickers/views/guide/widget/contact_tile.dart';
 import 'package:mini_kickers/views/guide/widget/faq_item.dart';
 import 'package:mini_kickers/views/guide/widget/guide_section.dart';
@@ -24,6 +26,7 @@ class GuideScreen extends StatelessWidget {
         children: <Widget>[
           const StadiumBackground(),
           SafeArea(
+            bottom: MediaQuery.of(context).padding.bottom > 0 ? false : true,
             child: Column(
               children: <Widget>[
                 _Header(),
@@ -43,6 +46,20 @@ class GuideScreen extends StatelessWidget {
                       ],
                     ),
                   ),
+                ),
+                // Bottom banner ad — gated remotely by `show_ads` +
+                // `show_guide_banner`. Wrapped in a ListenableBuilder
+                // so a remote flip during the session takes effect
+                // without leaving the screen.
+                ListenableBuilder(
+                  listenable: SettingsService.instance,
+                  builder: (final BuildContext context, final Widget? _) {
+                    final SettingsService s = SettingsService.instance;
+                    if (!s.showAds || !s.showGuideBanner) {
+                      return const SizedBox.shrink();
+                    }
+                    return const Center(child: BannerAdWidget());
+                  },
                 ),
               ],
             ),
@@ -164,6 +181,7 @@ class _OverviewSection extends StatelessWidget {
 
 class _InfoChip extends StatelessWidget {
   const _InfoChip({required this.icon, required this.text});
+
   final String icon;
   final String text;
 
@@ -335,6 +353,7 @@ class _SetupAndRulesSection extends StatelessWidget {
 
 class _RuleHeading extends StatelessWidget {
   const _RuleHeading({required this.text});
+
   final String text;
 
   @override
@@ -358,13 +377,10 @@ class _RuleHeading extends StatelessWidget {
 class _FeaturesSection extends StatelessWidget {
   const _FeaturesSection();
 
-  static const List<({IconData icon, String title, String tagline, Color color})>
-      _features = <({
-    IconData icon,
-    String title,
-    String tagline,
-    Color color
-  })>[
+  static const List<
+    ({IconData icon, String title, String tagline, Color color})
+  >
+  _features = <({IconData icon, String title, String tagline, Color color})>[
     (
       icon: Icons.palette_rounded,
       title: 'VIBRANT',
@@ -415,8 +431,22 @@ class _FeaturesSection extends StatelessWidget {
                   children: _features
                       .asMap()
                       .entries
-                      .map<Widget>((final MapEntry<int, ({IconData icon, String title, String tagline, Color color})> e) =>
-                          Expanded(child: _FeatureBadge(item: e.value, index: e.key)))
+                      .map<Widget>(
+                        (
+                          final MapEntry<
+                            int,
+                            ({
+                              IconData icon,
+                              String title,
+                              String tagline,
+                              Color color,
+                            })
+                          >
+                          e,
+                        ) => Expanded(
+                          child: _FeatureBadge(item: e.value, index: e.key),
+                        ),
+                      )
                       .toList(),
                 );
               }
@@ -474,12 +504,9 @@ class _FeatureBadgeState extends State<_FeatureBadge>
       vsync: this,
       duration: const Duration(milliseconds: 2400),
     );
-    Future<void>.delayed(
-      Duration(milliseconds: 350 + widget.index * 220),
-      () {
-        if (mounted) _ctrl.repeat(reverse: true);
-      },
-    );
+    Future<void>.delayed(Duration(milliseconds: 350 + widget.index * 220), () {
+      if (mounted) _ctrl.repeat(reverse: true);
+    });
   }
 
   @override
@@ -552,10 +579,7 @@ class _FeatureBadgeState extends State<_FeatureBadge>
                   fontWeight: FontWeight.w900,
                   letterSpacing: 1.2,
                   shadows: <Shadow>[
-                    Shadow(
-                      color: c.withValues(alpha: 0.55),
-                      blurRadius: 10,
-                    ),
+                    Shadow(color: c.withValues(alpha: 0.55), blurRadius: 10),
                   ],
                 ),
               ),
@@ -619,10 +643,7 @@ class _FaqSection extends StatelessWidget {
               children: <Widget>[
                 for (int i = 0; i < items.length; i++) ...<Widget>[
                   if (i > 0) const SizedBox(height: 8),
-                  FaqItem(
-                    question: items[i].question,
-                    answer: items[i].answer,
-                  ),
+                  FaqItem(question: items[i].question, answer: items[i].answer),
                 ],
               ],
             );
@@ -684,8 +705,7 @@ class _ContactSection extends StatelessWidget {
           value:
               'PNTC Tower, F-906, Radio Mirchi Rd, Vejalpur, Ahmedabad 380015',
           color: AppColors.brandYellow,
-          launchUrl:
-              'https://maps.apple.com/?q=PNTC+Tower+Vejalpur+Ahmedabad',
+          launchUrl: 'https://maps.apple.com/?q=PNTC+Tower+Vejalpur+Ahmedabad',
           copyValue:
               'PNTC Tower, F-906, Radio Mirchi Road, Vejalpur, Ahmedabad, Gujarat 380015',
         ),
