@@ -6,7 +6,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/bloc/game/game_bloc.dart';
 import 'package:mini_kickers/data/models/game_models.dart';
-import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/team_colors.dart';
 import 'package:mini_kickers/utils/ad_manager.dart';
@@ -328,7 +327,7 @@ class _ScoreRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: <Widget>[
           _scoreSide(
-            label: SettingsService.instance.redName,
+            label: TeamColors.name(Team.red),
             score: redScore,
             color: TeamColors.redLight(),
           ),
@@ -344,7 +343,7 @@ class _ScoreRow extends StatelessWidget {
             ),
           ),
           _scoreSide(
-            label: SettingsService.instance.blueName,
+            label: TeamColors.name(Team.blue),
             score: blueScore,
             color: TeamColors.blueLight(),
           ),

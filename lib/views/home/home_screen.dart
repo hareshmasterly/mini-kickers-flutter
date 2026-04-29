@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mini_kickers/bloc/game/game_bloc.dart';
+import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/routes/routes_name.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
@@ -13,6 +14,7 @@ import 'package:mini_kickers/utils/responsive.dart';
 import 'package:mini_kickers/views/game/game_screen.dart';
 import 'package:mini_kickers/views/home/widget/animated_title.dart';
 import 'package:mini_kickers/views/home/widget/buy_amazon_button.dart';
+import 'package:mini_kickers/views/home/widget/difficulty_picker_dialog.dart';
 import 'package:mini_kickers/views/home/widget/glass_action_card.dart';
 import 'package:mini_kickers/views/home/widget/hero_showcase.dart';
 import 'package:mini_kickers/views/home/widget/premium_play_button.dart';
@@ -52,6 +54,26 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onPlay() {
+    // Default "PLAY" entry point — local two-player. Make sure mode is
+    // reset to vsHuman in case the user previously played a VS AI match
+    // and bailed without going through the AI flow's cleanup.
+    SettingsService.instance.gameMode = GameMode.vsHuman;
+    _startGame();
+  }
+
+  /// Opens the difficulty picker, then starts a VS AI match if the
+  /// user confirmed. The picker is shown on every "VS AI" tap by
+  /// design (see decision §2 in [docs/vs_ai_feature_spec.md]).
+  Future<void> _onPlayVsAi() async {
+    AudioHelper.select();
+    final AiDifficulty? picked = await showDifficultyPickerDialog(context);
+    if (picked == null) return;
+    if (!mounted) return;
+    SettingsService.instance.gameMode = GameMode.vsAi;
+    _startGame();
+  }
+
+  void _startGame() {
     // Always start fresh: reset bloc so a new coin toss + new timer apply
     context.read<GameBloc>().add(const ResetGameEvent());
     Navigator.of(context).push(
@@ -82,7 +104,12 @@ class _HomeScreenState extends State<HomeScreen>
           );
         },
       ),
-    );
+    ).then((final _) {
+      // After returning from the game screen, snap mode back to vsHuman
+      // so the next default-PLAY tap doesn't accidentally launch VS AI.
+      if (!mounted) return;
+      SettingsService.instance.gameMode = GameMode.vsHuman;
+    });
   }
 
   @override
@@ -333,9 +360,8 @@ class _HomeScreenState extends State<HomeScreen>
         GlassActionCard(
           icon: Icons.smart_toy_rounded,
           label: 'VS AI',
-          locked: true,
           compact: compact,
-          onTap: () {},
+          onTap: _onPlayVsAi,
         ),
       ],
     );

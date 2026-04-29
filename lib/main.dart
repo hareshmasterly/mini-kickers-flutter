@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
@@ -35,15 +36,15 @@ Future<void> main() async {
     await Firebase.initializeApp();
   }
 
-  // try {
-  //   await FirebaseAppCheck.instance.activate(
-  //     providerAndroid: const AndroidPlayIntegrityProvider(),
-  //     providerApple: const AppleDeviceCheckProvider(),
-  //   );
-  //   debugPrint('App Check initialized successfully');
-  // } catch (e) {
-  //   debugPrint('Error initializing App Check: $e');
-  // }
+  try {
+    await FirebaseAppCheck.instance.activate(
+      providerAndroid: const AndroidPlayIntegrityProvider(),
+      providerApple: const AppleDeviceCheckProvider(),
+    );
+    debugPrint('App Check initialized successfully');
+  } catch (e) {
+    debugPrint('Error initializing App Check: $e');
+  }
 
   if (kReleaseMode) {
     FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;

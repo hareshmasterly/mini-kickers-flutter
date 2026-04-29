@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:mini_kickers/data/models/ai_difficulty_option.dart';
 import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/main.dart';
@@ -125,6 +126,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     current: _settings.matchSeconds,
                     onSelect: (final int seconds) async {
                       await _settings.setMatchSeconds(seconds);
+                      AudioHelper.select();
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _AiDifficultyTile(
+                    current: _settings.aiDifficulty,
+                    options: _settings.availableAiDifficulties,
+                    onSelect: (final AiDifficulty d) async {
+                      await _settings.setAiDifficulty(d);
                       AudioHelper.select();
                     },
                   ),
@@ -388,6 +398,140 @@ class _MatchDurationTile extends StatelessWidget {
                           fontWeight: FontWeight.w800,
                           letterSpacing: 1,
                         ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Settings tile for picking the VS AI opponent difficulty. Mirrors
+/// the visual language of [_MatchDurationTile] for consistency.
+///
+/// Sourced from [SettingsService.availableAiDifficulties] so the
+/// labels can be tuned remotely via Firestore — see
+/// [docs/vs_ai_feature_spec.md] §5.
+class _AiDifficultyTile extends StatelessWidget {
+  const _AiDifficultyTile({
+    required this.current,
+    required this.options,
+    required this.onSelect,
+  });
+
+  final AiDifficulty current;
+  final List<AiDifficultyOption> options;
+  final void Function(AiDifficulty) onSelect;
+
+  @override
+  Widget build(final BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.06),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: AppColors.brandRed.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: AppColors.brandRed.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.smart_toy_rounded,
+                      color: AppColors.brandRed,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Text(
+                      'AI Difficulty',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: options.map((final AiDifficultyOption opt) {
+                  final bool selected = opt.id == current;
+                  return GestureDetector(
+                    onTap: () => onSelect(opt.id),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? AppColors.accent.withValues(alpha: 0.85)
+                            : Colors.white.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: selected
+                              ? AppColors.accent
+                              : Colors.white.withValues(alpha: 0.18),
+                          width: selected ? 1.6 : 1,
+                        ),
+                        boxShadow: selected
+                            ? <BoxShadow>[
+                                BoxShadow(
+                                  color: AppColors.accent.withValues(
+                                    alpha: 0.5,
+                                  ),
+                                  blurRadius: 14,
+                                  spreadRadius: 1,
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          if (opt.emoji != null) ...<Widget>[
+                            Text(
+                              opt.emoji!,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Text(
+                            opt.name.toUpperCase(),
+                            style: TextStyle(
+                              color: selected ? Colors.black : Colors.white70,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   );

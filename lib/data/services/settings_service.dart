@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:mini_kickers/data/models/ai_difficulty_option.dart';
+import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/models/remote_app_settings.dart';
 import 'package:mini_kickers/data/models/team_palette.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -38,6 +40,7 @@ class SettingsService extends ChangeNotifier {
   static const String _kPalette = 'pref.paletteId';
   static const String _kRedName = 'pref.redName';
   static const String _kBlueName = 'pref.blueName';
+  static const String _kAiDifficulty = 'pref.aiDifficulty';
 
   // "User override" flags — distinguishes an explicit user choice from a
   // value that just happened to be stored. Without these, every user would
@@ -46,6 +49,7 @@ class SettingsService extends ChangeNotifier {
   static const String _kPaletteUserSet = 'pref.paletteId.userSet';
   static const String _kRedNameUserSet = 'pref.redName.userSet';
   static const String _kBlueNameUserSet = 'pref.blueName.userSet';
+  static const String _kAiDifficultyUserSet = 'pref.aiDifficulty.userSet';
 
   /// Cached JSON of the last successful Firestore `app_settings` document.
   static const String _kRemoteCache = 'pref.remoteSettings.cache';
@@ -75,12 +79,24 @@ class SettingsService extends ChangeNotifier {
   String _blueName = _fallbackBlueName;
   bool _blueNameUserSet = false;
 
+  AiDifficulty _aiDifficulty = AiDifficulty.medium;
+  bool _aiDifficultyUserSet = false;
+
+  /// Per-match game mode — **not** persisted across launches. The home
+  /// screen sets this to [GameMode.vsAi] when the user picks the VS AI
+  /// card and back to [GameMode.vsHuman] otherwise. We deliberately
+  /// don't save it: every match is a fresh choice from the home screen.
+  GameMode _gameMode = GameMode.vsHuman;
+
   RemoteAppSettings? _remote;
 
   // ── Getters: audio / haptics (no remote layer) ────────────────────────
   bool get soundEnabled => _soundEnabled;
+
   bool get musicEnabled => _musicEnabled;
+
   bool get hapticsEnabled => _hapticsEnabled;
+
   bool get commentaryEnabled => _commentaryEnabled;
 
   // ── Getters: layered (override → remote → fallback) ───────────────────
@@ -101,8 +117,7 @@ class SettingsService extends ChangeNotifier {
   int get matchSeconds {
     if (_matchSecondsUserSet) {
       final bool stillOffered = availableMatchDurations.any(
-        (final ({int seconds, String label}) d) =>
-            d.seconds == _matchSeconds,
+        (final ({int seconds, String label}) d) => d.seconds == _matchSeconds,
       );
       if (stillOffered) return _matchSeconds;
     }
@@ -141,6 +156,24 @@ class SettingsService extends ChangeNotifier {
     return _remote?.player2Name ?? _fallbackBlueName;
   }
 
+  /// Fixed display label for the AI opponent. v1 ships as a constant;
+  /// can be promoted to a remote-tunable Firestore field in the
+  /// future if needed (see [docs/vs_ai_feature_spec.md] §12).
+  static const String _aiDisplayName = 'AI';
+
+  /// In VS AI matches Blue is the bot — show a single fixed label so
+  /// the user isn't presented with a confusing editable name for an
+  /// opponent they can't customise. In VS Human matches this returns
+  /// the user's saved [blueName]. Their custom Blue name is preserved
+  /// across mode switches.
+  String get displayBlueName =>
+      _gameMode == GameMode.vsAi ? _aiDisplayName : blueName;
+
+  /// Symmetric helper. Red is always the player so this just returns
+  /// [redName]; provided so call sites can route through a uniform
+  /// `display*` API.
+  String get displayRedName => redName;
+
   // ── Ad config (all remote-driven, with safe defaults) ────────────────
   //
   // Defaults match the live Firestore values — so an offline first-launch
@@ -154,12 +187,17 @@ class SettingsService extends ChangeNotifier {
   bool get showAds => _remote?.showAds ?? true;
 
   bool get showGuideBanner => _remote?.showGuideBanner ?? true;
+
   bool get showSettingsBanner => _remote?.showSettingsBanner ?? true;
+
   bool get showInterstitialOnGoal => _remote?.showInterstitialOnGoal ?? true;
+
   bool get showInterstitialOnPlayAgain =>
       _remote?.showInterstitialOnPlayAgain ?? true;
+
   bool get showInterstitialOnRestartGame =>
       _remote?.showInterstitialOnRestartGame ?? true;
+
   bool get showInterstitialOnScreenNavigation =>
       _remote?.showInterstitialOnScreenNavigation ?? true;
 
@@ -180,8 +218,127 @@ class SettingsService extends ChangeNotifier {
   /// hardcoded set. Consumers (e.g. PalettePicker) should iterate this
   /// rather than [TeamPalettes.all] directly.
   List<TeamPalette> get availablePalettes {
-    final List<TeamPalette> remote = _remote?.teamColors ?? const <TeamPalette>[];
+    final List<TeamPalette> remote =
+        _remote?.teamColors ?? const <TeamPalette>[];
     return remote.isNotEmpty ? remote : TeamPalettes.all;
+  }
+
+  // ── AI config (remote-driven with safe defaults) ─────────────────────
+  //
+  // The home screen sets [gameMode] when the user taps "VS AI" or
+  // "VS HUMAN"; mode itself is in-memory only. Difficulty IS persisted
+  // (so a returning solo player gets their last-picked tier preselected
+  // in the picker). Every other AI knob — random factor, think delay,
+  // lookahead, scoring weights — is sourced from the remote
+  // `app_settings.ai_settings` map with hardcoded fallbacks.
+
+  GameMode get gameMode => _gameMode;
+
+  set gameMode(final GameMode value) {
+    if (_gameMode == value) return;
+    _gameMode = value;
+    notifyListeners();
+  }
+
+  /// User's chosen / last-used AI difficulty. Falls back to the remote
+  /// `ai_default_difficulty` then [AiDifficulty.medium].
+  AiDifficulty get aiDifficulty {
+    if (_aiDifficultyUserSet) return _aiDifficulty;
+    return _remote?.ai.defaultDifficulty ?? AiDifficulty.medium;
+  }
+
+  /// Difficulty options shown in the picker. Sourced from the remote
+  /// `ai_difficulty_levels` array if non-empty, otherwise the hardcoded
+  /// fallback in [AiDifficultyOption.fallback]. Iterating this rather
+  /// than the [AiDifficulty] enum lets you change the labels (and even
+  /// the order) from Firestore without an app update.
+  List<AiDifficultyOption> get availableAiDifficulties {
+    final List<AiDifficultyOption> remote =
+        _remote?.ai.difficultyLevels ?? const <AiDifficultyOption>[];
+    return remote.isNotEmpty ? remote : AiDifficultyOption.fallback;
+  }
+
+  /// Per-tier randomness (0.0–1.0). Higher = more chaotic / easier.
+  /// Clamped defensively so a remote misconfiguration can't break the
+  /// AI. See [docs/vs_ai_feature_spec.md] §3.4.
+  double get aiRandomFactor {
+    final double? remote;
+    switch (aiDifficulty) {
+      case AiDifficulty.easy:
+        remote = _remote?.ai.easyRandomFactor;
+        break;
+      case AiDifficulty.medium:
+        remote = _remote?.ai.mediumRandomFactor;
+        break;
+      case AiDifficulty.hard:
+        remote = _remote?.ai.hardRandomFactor;
+        break;
+    }
+    final double resolved = remote ?? _fallbackRandomFor(aiDifficulty);
+    return resolved.clamp(0.0, 1.0);
+  }
+
+  /// "BLUE is thinking…" delay before the AI fires its events.
+  /// Clamped to [0, 5000] so a misconfigured huge value can't hang the
+  /// game.
+  int get aiThinkDelayMs {
+    final int? remote;
+    switch (aiDifficulty) {
+      case AiDifficulty.easy:
+        remote = _remote?.ai.easyThinkDelayMs;
+        break;
+      case AiDifficulty.medium:
+        remote = _remote?.ai.mediumThinkDelayMs;
+        break;
+      case AiDifficulty.hard:
+        remote = _remote?.ai.hardThinkDelayMs;
+        break;
+    }
+    final int resolved = remote ?? _fallbackThinkDelayFor(aiDifficulty);
+    return resolved.clamp(0, 5000);
+  }
+
+  /// Whether 1-ply opponent lookahead is enabled. Only Hard ever uses
+  /// it; Easy + Medium always return `false`.
+  bool get aiUseLookahead {
+    if (aiDifficulty != AiDifficulty.hard) return false;
+    return _remote?.ai.hardUseLookahead ?? true;
+  }
+
+  // Base scoring weights — only meaningful inside the AI scorer.
+  // Default values match the spec; remote overrides for fine-tuning.
+  double get aiWeightChaseBall => _remote?.ai.weightChaseBall ?? 1.5;
+
+  double get aiWeightPushToGoal => _remote?.ai.weightPushToGoal ?? 1.0;
+
+  double get aiWeightBlockOpponent => _remote?.ai.weightBlockOpponent ?? 0.8;
+
+  double get aiWeightCaptureBall => _remote?.ai.weightCaptureBall ?? 10.0;
+
+  double get aiWeightScoreGoal => _remote?.ai.weightScoreGoal ?? 1000.0;
+
+  double get aiWeightAvoidCapture => _remote?.ai.weightAvoidCapture ?? 0.5;
+
+  static double _fallbackRandomFor(final AiDifficulty d) {
+    switch (d) {
+      case AiDifficulty.easy:
+        return 0.6;
+      case AiDifficulty.medium:
+        return 0.2;
+      case AiDifficulty.hard:
+        return 0.05;
+    }
+  }
+
+  static int _fallbackThinkDelayFor(final AiDifficulty d) {
+    switch (d) {
+      case AiDifficulty.easy:
+        return 700;
+      case AiDifficulty.medium:
+        return 900;
+      case AiDifficulty.hard:
+        return 1100;
+    }
   }
 
   /// Currently active palette: the user's pick if they have one,
@@ -214,8 +371,7 @@ class SettingsService extends ChangeNotifier {
     // have been set before the userSet-flag scheme existed).
     if (_prefs!.containsKey(_kMatchSeconds)) {
       _matchSeconds = _prefs!.getInt(_kMatchSeconds)!;
-      _matchSecondsUserSet =
-          _prefs!.getBool(_kMatchSecondsUserSet) ?? true;
+      _matchSecondsUserSet = _prefs!.getBool(_kMatchSecondsUserSet) ?? true;
     }
     if (_prefs!.containsKey(_kPalette)) {
       _paletteId = _prefs!.getString(_kPalette)!;
@@ -228,6 +384,15 @@ class SettingsService extends ChangeNotifier {
     if (_prefs!.containsKey(_kBlueName)) {
       _blueName = _prefs!.getString(_kBlueName)!;
       _blueNameUserSet = _prefs!.getBool(_kBlueNameUserSet) ?? true;
+    }
+    if (_prefs!.containsKey(_kAiDifficulty)) {
+      final AiDifficulty? parsed = AiDifficultyX.fromId(
+        _prefs!.getString(_kAiDifficulty),
+      );
+      if (parsed != null) {
+        _aiDifficulty = parsed;
+        _aiDifficultyUserSet = _prefs!.getBool(_kAiDifficultyUserSet) ?? true;
+      }
     }
 
     _loadRemoteCache();
@@ -363,15 +528,27 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Persist the user's AI difficulty pick. Promotes the value to a
+  /// "user override" so the remote `ai_default_difficulty` no longer
+  /// overrides it.
+  Future<void> setAiDifficulty(final AiDifficulty value) async {
+    if (_aiDifficulty == value && _aiDifficultyUserSet) return;
+    _aiDifficulty = value;
+    _aiDifficultyUserSet = true;
+    await _prefs?.setString(_kAiDifficulty, value.id);
+    await _prefs?.setBool(_kAiDifficultyUserSet, true);
+    notifyListeners();
+  }
+
   /// Hardcoded fallback for the duration picker — only used if remote
   /// `game_durations` is missing or empty. Mirrors the original list.
   static const List<({int seconds, String label})> _fallbackMatchDurations =
       <({int seconds, String label})>[
-    (seconds: 300, label: '5 MIN'),
-    (seconds: 600, label: '10 MIN'),
-    (seconds: 900, label: '15 MIN'),
-    (seconds: 1200, label: '20 MIN'),
-  ];
+        (seconds: 300, label: '5 MIN'),
+        (seconds: 600, label: '10 MIN'),
+        (seconds: 900, label: '15 MIN'),
+        (seconds: 1200, label: '20 MIN'),
+      ];
 }
 
 void debugLogSettings() {
@@ -393,6 +570,14 @@ void debugLogSettings() {
       'nav:${s.showInterstitialOnScreenNavigation} '
       'guideBanner:${s.showGuideBanner} '
       'settingsBanner:${s.showSettingsBanner}',
+    );
+    debugPrint(
+      'Settings/ai — mode:${s.gameMode.name} '
+      'difficulty:${s.aiDifficulty.name} '
+      'random:${s.aiRandomFactor} '
+      'thinkMs:${s.aiThinkDelayMs} '
+      'lookahead:${s.aiUseLookahead} '
+      'levels:${s.availableAiDifficulties.map((final AiDifficultyOption o) => o.id.id).toList()}',
     );
   }
 }

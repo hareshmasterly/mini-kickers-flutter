@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:mini_kickers/data/models/ai_difficulty_option.dart';
+import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/models/team_palette.dart';
 
 /// Parsed snapshot of the `app_settings` document from Firestore.
@@ -42,6 +44,7 @@ class RemoteAppSettings {
     this.showInterstitialOnScreenNavigation,
     this.interstitialOnEveryNthGoal,
     this.interstitialEveryNthNavPush,
+    this.ai = const RemoteAiSettings(),
   });
 
   final int? defaultGameDuration;
@@ -60,6 +63,11 @@ class RemoteAppSettings {
   final bool? showInterstitialOnScreenNavigation;
   final int? interstitialOnEveryNthGoal;
   final int? interstitialEveryNthNavPush;
+
+  /// AI tuning sub-tree, parsed from the nested `ai_settings` map. Falls
+  /// back to an empty [RemoteAiSettings] when absent so callers always
+  /// get sensible defaults.
+  final RemoteAiSettings ai;
 
   factory RemoteAppSettings.fromMap(final Map<String, dynamic> data) {
     final List<dynamic> colors = (data['team_colors'] as List<dynamic>?) ??
@@ -101,6 +109,10 @@ class RemoteAppSettings {
           (data['show_interstitial_on_every_Nth_goal'] as num?)?.toInt(),
       interstitialEveryNthNavPush:
           (data['show_interstitial_every_Nth_nav_push'] as num?)?.toInt(),
+      ai: RemoteAiSettings.fromMap(
+        (data['ai_settings'] as Map<dynamic, dynamic>?)
+            ?.cast<String, dynamic>(),
+      ),
     );
   }
 
@@ -125,5 +137,96 @@ class RemoteAppSettings {
     // RGB (no alpha) → assume opaque.
     if (s.length == 6) return Color(0xFF000000 | parsed);
     return Color(parsed);
+  }
+}
+
+/// AI-specific tuning, parsed from the nested `ai_settings` map.
+///
+/// Schema (under `app_settings.ai_settings`):
+///   • `ai_default_difficulty` — string, one of `easy`/`medium`/`hard`.
+///   • `ai_difficulty_levels` — array of `{id, name, subtitle?, emoji?}`
+///     used to populate the picker. See [AiDifficultyOption].
+///   • `ai_<tier>_random_factor` — number 0.0–1.0, per-tier noise.
+///   • `ai_<tier>_think_delay_ms` — number, milliseconds.
+///   • `ai_hard_use_lookahead` — bool.
+///   • `ai_weight_*` — optional advanced scoring weights (six fields).
+///
+/// Every field is nullable; consumers (in [SettingsService]) layer
+/// hardcoded defaults on top.
+class RemoteAiSettings {
+  const RemoteAiSettings({
+    this.defaultDifficulty,
+    this.difficultyLevels = const <AiDifficultyOption>[],
+    this.easyRandomFactor,
+    this.mediumRandomFactor,
+    this.hardRandomFactor,
+    this.easyThinkDelayMs,
+    this.mediumThinkDelayMs,
+    this.hardThinkDelayMs,
+    this.hardUseLookahead,
+    this.weightChaseBall,
+    this.weightPushToGoal,
+    this.weightBlockOpponent,
+    this.weightCaptureBall,
+    this.weightScoreGoal,
+    this.weightAvoidCapture,
+  });
+
+  final AiDifficulty? defaultDifficulty;
+  final List<AiDifficultyOption> difficultyLevels;
+
+  // Per-tier knobs.
+  final double? easyRandomFactor;
+  final double? mediumRandomFactor;
+  final double? hardRandomFactor;
+  final int? easyThinkDelayMs;
+  final int? mediumThinkDelayMs;
+  final int? hardThinkDelayMs;
+  final bool? hardUseLookahead;
+
+  // Advanced scoring weights (shared across tiers).
+  final double? weightChaseBall;
+  final double? weightPushToGoal;
+  final double? weightBlockOpponent;
+  final double? weightCaptureBall;
+  final double? weightScoreGoal;
+  final double? weightAvoidCapture;
+
+  factory RemoteAiSettings.fromMap(final Map<String, dynamic>? data) {
+    if (data == null) return const RemoteAiSettings();
+
+    final List<dynamic> levelsRaw =
+        (data['ai_difficulty_levels'] as List<dynamic>?) ?? const <dynamic>[];
+    final List<AiDifficultyOption> levels = levelsRaw
+        .whereType<Map<dynamic, dynamic>>()
+        .map((final Map<dynamic, dynamic> raw) =>
+            AiDifficultyOption.fromMap(raw.cast<String, dynamic>()))
+        .whereType<AiDifficultyOption>()
+        .toList();
+
+    return RemoteAiSettings(
+      defaultDifficulty:
+          AiDifficultyX.fromId(data['ai_default_difficulty'] as String?),
+      difficultyLevels: levels,
+      easyRandomFactor: _toDouble(data['ai_easy_random_factor']),
+      mediumRandomFactor: _toDouble(data['ai_medium_random_factor']),
+      hardRandomFactor: _toDouble(data['ai_hard_random_factor']),
+      easyThinkDelayMs: (data['ai_easy_think_delay_ms'] as num?)?.toInt(),
+      mediumThinkDelayMs:
+          (data['ai_medium_think_delay_ms'] as num?)?.toInt(),
+      hardThinkDelayMs: (data['ai_hard_think_delay_ms'] as num?)?.toInt(),
+      hardUseLookahead: data['ai_hard_use_lookahead'] as bool?,
+      weightChaseBall: _toDouble(data['ai_weight_chase_ball']),
+      weightPushToGoal: _toDouble(data['ai_weight_push_to_goal']),
+      weightBlockOpponent: _toDouble(data['ai_weight_block_opponent']),
+      weightCaptureBall: _toDouble(data['ai_weight_capture_ball']),
+      weightScoreGoal: _toDouble(data['ai_weight_score_goal']),
+      weightAvoidCapture: _toDouble(data['ai_weight_avoid_capture']),
+    );
+  }
+
+  static double? _toDouble(final Object? raw) {
+    if (raw is num) return raw.toDouble();
+    return null;
   }
 }

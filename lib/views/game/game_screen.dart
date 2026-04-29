@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mini_kickers/ai/ai_controller.dart';
 import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/bloc/game/game_bloc.dart';
 import 'package:mini_kickers/data/models/game_models.dart';
@@ -33,6 +34,30 @@ class _GameScreenState extends State<GameScreen> {
   /// True while the promo overlay is visible. Cleared when the user
   /// dismisses the card or when a new match starts.
   bool _showGoalAd = false;
+
+  /// AI driver. Non-null only when [SettingsService.gameMode] is
+  /// `vsAi` at screen-mount time. Disposed in [dispose] so we don't
+  /// leak a bloc subscription if the user backs out mid-match.
+  AiController? _aiController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Defer until after the first frame so `context.read<GameBloc>()`
+    // has a fully resolved provider tree above us.
+    WidgetsBinding.instance.addPostFrameCallback((final _) {
+      if (!mounted) return;
+      if (SettingsService.instance.gameMode != GameMode.vsAi) return;
+      _aiController = AiController(bloc: context.read<GameBloc>());
+      _aiController!.start();
+    });
+  }
+
+  @override
+  void dispose() {
+    _aiController?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(final BuildContext context) {
@@ -265,7 +290,7 @@ class _LegendBar extends StatelessWidget {
             children: <Widget>[
               Flexible(
                 child: Text(
-                  '⬤ ${SettingsService.instance.redName} — ATTACKS RIGHT',
+                  '⬤ ${TeamColors.name(Team.red)} — ATTACKS RIGHT',
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: TeamColors.redLight(),
@@ -278,7 +303,7 @@ class _LegendBar extends StatelessWidget {
               const SizedBox(width: 12),
               Flexible(
                 child: Text(
-                  '${SettingsService.instance.blueName} — ATTACKS LEFT ⬤',
+                  '${TeamColors.name(Team.blue)} — ATTACKS LEFT ⬤',
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.right,
                   style: TextStyle(

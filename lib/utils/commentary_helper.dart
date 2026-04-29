@@ -135,9 +135,11 @@ class CommentaryHelper {
   }
 
   static String teamLabel(final Team t) {
+    // Use the AI-aware display getters so commentary in VS AI matches
+    // says "AI" instead of the user's previously-saved Blue name.
     final String name = t == Team.red
-        ? SettingsService.instance.redName
-        : SettingsService.instance.blueName;
+        ? SettingsService.instance.displayRedName
+        : SettingsService.instance.displayBlueName;
     return t == Team.red ? '🔴 $name' : '🔵 $name';
   }
 
