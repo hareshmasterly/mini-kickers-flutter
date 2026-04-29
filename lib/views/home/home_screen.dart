@@ -2,9 +2,9 @@ import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mini_kickers/bloc/game/game_bloc.dart';
+import 'package:mini_kickers/data/models/ai_difficulty_option.dart';
 import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/routes/routes_name.dart';
@@ -17,7 +17,7 @@ import 'package:mini_kickers/views/home/widget/buy_amazon_button.dart';
 import 'package:mini_kickers/views/home/widget/difficulty_picker_dialog.dart';
 import 'package:mini_kickers/views/home/widget/glass_action_card.dart';
 import 'package:mini_kickers/views/home/widget/hero_showcase.dart';
-import 'package:mini_kickers/views/home/widget/premium_play_button.dart';
+import 'package:mini_kickers/views/home/widget/mode_card.dart';
 import 'package:mini_kickers/views/home/widget/stadium_background.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -234,13 +234,23 @@ class _HomeScreenState extends State<HomeScreen>
                 : isTablet
                     ? 96
                     : (size.width < 360 ? 38 : 52);
-        final double playButtonWidth = ultraShort
-            ? 220
+        // The two-card mode row replaces the previous single PLAY
+        // button. Width scales the same way the old playButtonWidth
+        // did so the right-column composition stays balanced.
+        final double modesRowWidth = ultraShort
+            ? 280
             : short
-                ? 260
+                ? 340
                 : isTablet
-                    ? 400
-                    : 340;
+                    ? 540
+                    : 420;
+        final double modesGap = ultraShort
+            ? 8
+            : short
+                ? 10
+                : isTablet
+                    ? 18
+                    : 14;
         // Larger gaps on iPad — the content fills more vertical space
         // and stops feeling like a small island in a big screen.
         final double gapAfterTitle = ultraShort
@@ -314,10 +324,12 @@ class _HomeScreenState extends State<HomeScreen>
                     opacity: t3,
                     child: Transform.translate(
                       offset: Offset(0, 30 * (1 - t3)),
-                      child: PremiumPlayButton(
-                        onPressed: _onPlay,
-                        width: playButtonWidth,
+                      child: _buildModesRow(
+                        width: modesRowWidth,
+                        gap: modesGap,
                         compact: compact,
+                        ultraShort: ultraShort,
+                        isTablet: isTablet,
                       ),
                     ),
                   ),
@@ -335,6 +347,91 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  /// Two-card primary mode selector — the visual centrepiece of the
+  /// home screen. Wrapped in a [ListenableBuilder] so the AI card's
+  /// difficulty chip stays in sync when the user picks a new tier in
+  /// the picker (or in Settings).
+  Widget _buildModesRow({
+    required final double width,
+    required final double gap,
+    required final bool compact,
+    required final bool ultraShort,
+    required final bool isTablet,
+  }) {
+    return ListenableBuilder(
+      listenable: SettingsService.instance,
+      builder: (final BuildContext context, final Widget? _) {
+        final SettingsService s = SettingsService.instance;
+
+        // Use the Firestore-driven display name for the chip
+        // (e.g. "BEGINNER" / "PRO" / "CHAMPION") rather than the raw
+        // enum id ("EASY"/...). Falls back to the enum id if the
+        // current difficulty isn't found in the available list.
+        final List<AiDifficultyOption> options = s.availableAiDifficulties;
+        final AiDifficultyOption aiOption = options.firstWhere(
+          (final AiDifficultyOption o) => o.id == s.aiDifficulty,
+          orElse: () => AiDifficultyOption.fallback.firstWhere(
+            (final AiDifficultyOption o) => o.id == s.aiDifficulty,
+            orElse: () => AiDifficultyOption.fallback.first,
+          ),
+        );
+        final String aiChipText = aiOption.name.toUpperCase();
+
+        return ConstrainedBox(
+          // maxWidth (not fixed width) so the row never overflows a
+          // narrower parent — important on tablets where the controls
+          // column is split flex-wise with the hero showcase.
+          constraints: BoxConstraints(maxWidth: width),
+          // IntrinsicHeight + CrossAxisAlignment.stretch so both
+          // cards always render at the same height, regardless of
+          // any future content asymmetry between them.
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Expanded(
+                  child: ModeCard(
+                    icon: Icons.smart_toy_rounded,
+                    label: 'VS AI',
+                    subtitle: 'Beat the bot',
+                    glowColor: AppColors.brandRed,
+                    // Live difficulty chip — reflects the user's last
+                    // pick / current Settings value.
+                    chipText: aiChipText,
+                    compact: compact,
+                    ultraShort: ultraShort,
+                    isTablet: isTablet,
+                    onTap: _onPlayVsAi,
+                  ),
+                ),
+                SizedBox(width: gap),
+                Expanded(
+                  child: ModeCard(
+                    icon: Icons.people_alt_rounded,
+                    label: 'PASS & PLAY',
+                    subtitle: 'Couch match',
+                    glowColor: AppColors.blue,
+                    // Static "2 PLAYERS" chip mirrors the AI card's
+                    // difficulty chip so both cards have visual
+                    // symmetry instead of one card looking sparse.
+                    chipText: '2 PLAYERS',
+                    compact: compact,
+                    ultraShort: ultraShort,
+                    isTablet: isTablet,
+                    onTap: _onPlay,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Bottom action row — secondary actions only. The previous "VS AI"
+  /// entry moved up to a primary [ModeCard]; "MULTIPLAYER" stays here
+  /// (locked) since it isn't shippable yet.
   Widget _buildActionRow({final bool compact = false}) {
     final double spacing = compact ? 10 : 14;
     return Row(
@@ -353,15 +450,7 @@ class _HomeScreenState extends State<HomeScreen>
           label: 'MULTI-\nPLAYER',
           locked: true,
           compact: compact,
-          onTap: ()  {
-          },
-        ),
-        SizedBox(width: spacing),
-        GlassActionCard(
-          icon: Icons.smart_toy_rounded,
-          label: 'VS AI',
-          compact: compact,
-          onTap: _onPlayVsAi,
+          onTap: () {},
         ),
       ],
     );

@@ -458,9 +458,16 @@ class _CompactBody extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 4),
-              _CountdownLabel(
-                value: countdownValue,
-                totalSeconds: autoCloseSeconds,
+              // Center the countdown specifically — the rest of this
+              // column is left-aligned (crossAxisAlignment.start), so
+              // without an explicit Center the label hugs the left
+              // edge instead of sitting under the BUY button.
+              Align(
+                alignment: Alignment.center,
+                child: _CountdownLabel(
+                  value: countdownValue,
+                  totalSeconds: autoCloseSeconds,
+                ),
               ),
             ],
           ),
