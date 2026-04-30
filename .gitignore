@@ -44,6 +44,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+# Flavor-specific build artifacts (AABs / APKs). Pattern matches
+# android/app/<flavor>/release/, e.g. android/app/prod/release/.
+/android/app/*/release/
+/android/app/*/debug/
+/android/app/*/profile/
 
 # FVM Version Cache
 .fvm/

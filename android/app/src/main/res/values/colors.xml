@@ -3,4 +3,5 @@
     <!-- Matches AppColors.stadiumDeep so the launch splash blends seamlessly
          with the Flutter SplashScreen background. -->
     <color name="launch_background_color">#FF02110A</color>
+	<color name="ic_launcher_background">#02110A</color>
 </resources>

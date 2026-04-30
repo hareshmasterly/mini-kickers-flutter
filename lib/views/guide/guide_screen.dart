@@ -58,7 +58,11 @@ class GuideScreen extends StatelessWidget {
                     if (!s.showAds || !s.showGuideBanner) {
                       return const SizedBox.shrink();
                     }
-                    return const Center(child: BannerAdWidget());
+                    return const Center(
+                      child: BannerAdWidget(
+                        placement: AdPlacement.guideBanner,
+                      ),
+                    );
                   },
                 ),
               ],
