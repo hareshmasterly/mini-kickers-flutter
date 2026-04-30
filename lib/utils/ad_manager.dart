@@ -5,6 +5,25 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 
+/// Distinct ad slot. Each value maps to its own AdMob unit id so
+/// per-placement revenue, fill rate and mediation rules can be tuned
+/// independently in the AdMob console.
+///
+/// Test mode (`USE_TEST_ADS=true`) collapses all banner placements to
+/// Google's single test banner id and all interstitial placements to
+/// the single test interstitial id — Google's test infrastructure is
+/// not per-placement.
+enum AdPlacement {
+  // Banners
+  settingsBanner,
+  guideBanner,
+  // Interstitials
+  navigationInterstitial,
+  goalInterstitial,
+  playAgainInterstitial,
+  restartInterstitial,
+}
+
 /// Centralised AdMob orchestration.
 ///
 /// Responsibilities:
@@ -13,8 +32,9 @@ import 'package:mini_kickers/data/services/settings_service.dart';
 ///   • Initialises the MobileAds SDK with **kids-audience** flags
 ///     (TFCD + max content rating G + non-personalised ads). Required
 ///     for App Store Kids and Play Family Policy compliance.
-///   • Pre-loads exactly one interstitial at a time so [showInterstitial]
-///     is always near-instant when the user reaches a break point.
+///   • Pre-loads exactly one interstitial **per [AdPlacement] slot** so
+///     every slot's first show is near-instant when the user reaches a
+///     break point.
 ///   • Reads frequency thresholds + per-slot toggles from the remote
 ///     `app_settings` document via [SettingsService] — every gate below
 ///     is remote-driven, so behaviour can be tuned without an app
@@ -32,8 +52,9 @@ import 'package:mini_kickers/data/services/settings_service.dart';
 ///
 /// **Switching to production:**
 ///   1. Set [_useTestIds] = false (or flip via `--dart-define`).
-///   2. Replace the four prod constants below with your real AdMob unit
-///      ids.
+///   2. Replace every `_prod*` placeholder constant below with the real
+///      AdMob unit id from the AdMob console — one per placement per
+///      platform (12 total).
 ///   3. Replace `GADApplicationIdentifier` in `ios/Runner/Info.plist`.
 ///   4. Replace `com.google.android.gms.ads.APPLICATION_ID` meta-data
 ///      in `android/app/src/main/AndroidManifest.xml`.
@@ -50,45 +71,98 @@ class AdManager {
   ///
   /// Can also be overridden at build time:
   /// `flutter run --dart-define=USE_TEST_ADS=false`
-  static const bool _useTestIds = bool.fromEnvironment(
-    'USE_TEST_ADS',
-    defaultValue: true,
-  );
+  static const bool _useTestIds = true;
 
-  // Google's published test unit ids (https://developers.google.com/admob/flutter/test-ads).
+  // ── Test ids (Google public, never flagged) ───────────────────────────
+  // https://developers.google.com/admob/flutter/test-ads
+  // Test infrastructure is not per-placement — every banner uses the
+  // banner test id, every interstitial uses the interstitial test id.
   static const String _testInterstitialAndroid =
       'ca-app-pub-3940256099942544/1033173712';
   static const String _testInterstitialIOS =
       'ca-app-pub-3940256099942544/4411468910';
   static const String _testBannerAndroid =
       'ca-app-pub-3940256099942544/6300978111';
-  static const String _testBannerIOS =
-      'ca-app-pub-3940256099942544/2934735716';
+  static const String _testBannerIOS = 'ca-app-pub-3940256099942544/2934735716';
 
-  // Production unit ids — replace these strings when the AdMob account
-  // is ready. Until then [_useTestIds] guards them so they're never hit.
-  static const String _prodInterstitialAndroid =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/INTERSTITIAL_ANDROID';
-  static const String _prodInterstitialIOS =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/INTERSTITIAL_IOS';
-  static const String _prodBannerAndroid =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/BANNER_ANDROID';
-  static const String _prodBannerIOS =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/BANNER_IOS';
+  // ── Prod ids (placeholders — replace before going live) ───────────────
+  // One unit id per [AdPlacement] per platform. Format must remain
+  // `ca-app-pub-XXXXXXXXXXXXXXXX/SLOT_NAME` so the SDK accepts the
+  // string at request time (it'll just no-fill).
 
-  String get interstitialAdUnitId {
+  // Banners
+  static const String _prodSettingsBannerAndroid =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/SETTINGS_BANNER_ANDROID';
+  static const String _prodSettingsBannerIOS =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/SETTINGS_BANNER_IOS';
+  static const String _prodGuideBannerAndroid =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/GUIDE_BANNER_ANDROID';
+  static const String _prodGuideBannerIOS =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/GUIDE_BANNER_IOS';
+
+  // Interstitials
+  static const String _prodNavInterstitialAndroid =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/NAV_INTERSTITIAL_ANDROID';
+  static const String _prodNavInterstitialIOS =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/NAV_INTERSTITIAL_IOS';
+  static const String _prodGoalInterstitialAndroid =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/GOAL_INTERSTITIAL_ANDROID';
+  static const String _prodGoalInterstitialIOS =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/GOAL_INTERSTITIAL_IOS';
+  static const String _prodPlayAgainInterstitialAndroid =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/PLAY_AGAIN_INTERSTITIAL_ANDROID';
+  static const String _prodPlayAgainInterstitialIOS =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/PLAY_AGAIN_INTERSTITIAL_IOS';
+  static const String _prodRestartInterstitialAndroid =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/RESTART_INTERSTITIAL_ANDROID';
+  static const String _prodRestartInterstitialIOS =
+      'ca-app-pub-XXXXXXXXXXXXXXXX/RESTART_INTERSTITIAL_IOS';
+
+  /// Returns the AdMob unit id for the given placement. Honors
+  /// [_useTestIds] (test mode collapses all banners → one test banner id
+  /// and all interstitials → one test interstitial id; Google doesn't
+  /// expose per-placement test ids).
+  String adUnitIdFor(final AdPlacement placement) {
+    final bool isIOS = Platform.isIOS;
     if (_useTestIds) {
-      return Platform.isIOS ? _testInterstitialIOS : _testInterstitialAndroid;
+      switch (placement) {
+        case AdPlacement.settingsBanner:
+        case AdPlacement.guideBanner:
+          return isIOS ? _testBannerIOS : _testBannerAndroid;
+        case AdPlacement.navigationInterstitial:
+        case AdPlacement.goalInterstitial:
+        case AdPlacement.playAgainInterstitial:
+        case AdPlacement.restartInterstitial:
+          return isIOS ? _testInterstitialIOS : _testInterstitialAndroid;
+      }
     }
-    return Platform.isIOS ? _prodInterstitialIOS : _prodInterstitialAndroid;
+    switch (placement) {
+      case AdPlacement.settingsBanner:
+        return isIOS ? _prodSettingsBannerIOS : _prodSettingsBannerAndroid;
+      case AdPlacement.guideBanner:
+        return isIOS ? _prodGuideBannerIOS : _prodGuideBannerAndroid;
+      case AdPlacement.navigationInterstitial:
+        return isIOS ? _prodNavInterstitialIOS : _prodNavInterstitialAndroid;
+      case AdPlacement.goalInterstitial:
+        return isIOS ? _prodGoalInterstitialIOS : _prodGoalInterstitialAndroid;
+      case AdPlacement.playAgainInterstitial:
+        return isIOS
+            ? _prodPlayAgainInterstitialIOS
+            : _prodPlayAgainInterstitialAndroid;
+      case AdPlacement.restartInterstitial:
+        return isIOS
+            ? _prodRestartInterstitialIOS
+            : _prodRestartInterstitialAndroid;
+    }
   }
 
-  String get bannerAdUnitId {
-    if (_useTestIds) {
-      return Platform.isIOS ? _testBannerIOS : _testBannerAndroid;
-    }
-    return Platform.isIOS ? _prodBannerIOS : _prodBannerAndroid;
-  }
+  /// All interstitial placements — used for warm pre-loading at init.
+  static const List<AdPlacement> _interstitialPlacements = <AdPlacement>[
+    AdPlacement.navigationInterstitial,
+    AdPlacement.goalInterstitial,
+    AdPlacement.playAgainInterstitial,
+    AdPlacement.restartInterstitial,
+  ];
 
   // ── Counters ──────────────────────────────────────────────────────────
 
@@ -99,8 +173,12 @@ class AdManager {
 
   bool _initialized = false;
   final Completer<void> _readyCompleter = Completer<void>();
-  InterstitialAd? _interstitialAd;
-  bool _loadingInterstitial = false;
+
+  /// One pre-loaded interstitial cached per slot. After a slot fires, the
+  /// callback re-loads that slot so the next firing is also instant.
+  final Map<AdPlacement, InterstitialAd?> _interstitials =
+      <AdPlacement, InterstitialAd?>{};
+  final Map<AdPlacement, bool> _loadingInterstitials = <AdPlacement, bool>{};
 
   /// Completes once `MobileAds.initialize()` has finished. Widgets that
   /// load ads (banners) should `await AdManager.instance.ready` before
@@ -117,8 +195,7 @@ class AdManager {
     _initialized = true;
 
     if (kDebugMode) debugPrint('AdManager: initializing MobileAds...');
-    final InitializationStatus status =
-        await MobileAds.instance.initialize();
+    final InitializationStatus status = await MobileAds.instance.initialize();
     await MobileAds.instance.updateRequestConfiguration(
       RequestConfiguration(
         // COPPA / Family Policy — the app targets kids 5–12.
@@ -129,26 +206,30 @@ class AdManager {
 
     if (kDebugMode) {
       debugPrint(
-        'AdManager: initialised — '
-        'mode=${_useTestIds ? 'TEST' : 'PROD'} '
-        'interstitial=$interstitialAdUnitId '
-        'banner=$bannerAdUnitId',
+        'AdManager: initialised — mode=${_useTestIds ? 'TEST' : 'PROD'}',
       );
-      status.adapterStatuses.forEach(
-        (final String name, final AdapterStatus s) {
-          debugPrint(
-            'AdManager: adapter $name → state=${s.state} desc="${s.description}"',
-          );
-        },
-      );
+      for (final AdPlacement p in AdPlacement.values) {
+        debugPrint('AdManager: ${p.name} → ${adUnitIdFor(p)}');
+      }
+      status.adapterStatuses.forEach((
+        final String name,
+        final AdapterStatus s,
+      ) {
+        debugPrint(
+          'AdManager: adapter $name → state=${s.state} desc="${s.description}"',
+        );
+      });
     }
 
     if (!_readyCompleter.isCompleted) _readyCompleter.complete();
 
-    // Warm up the first interstitial so the post-game-over slot is fast.
-    // We preload regardless of remote toggles — if `show_ads` is later
-    // flipped on, we want an ad already in the chamber.
-    _preloadInterstitial();
+    // Warm up an interstitial for every slot so the first firing is
+    // instant. Each slot maintains its own cache + reload cycle. We
+    // preload regardless of remote toggles — if `show_ads` is later
+    // flipped on, we want an ad already in the chamber for every slot.
+    for (final AdPlacement p in _interstitialPlacements) {
+      _preloadInterstitial(p);
+    }
   }
 
   /// Standard ad request used for every load. Non-personalised because
@@ -157,76 +238,88 @@ class AdManager {
 
   // ── Interstitial pre-load + show ──────────────────────────────────────
 
-  Future<void> _preloadInterstitial() async {
-    if (_loadingInterstitial || _interstitialAd != null) return;
-    _loadingInterstitial = true;
+  Future<void> _preloadInterstitial(final AdPlacement placement) async {
+    if (_loadingInterstitials[placement] == true) return;
+    if (_interstitials[placement] != null) return;
+    _loadingInterstitials[placement] = true;
     // Defensive: only safe to call after `MobileAds.initialize()`.
     await ready;
-    if (kDebugMode) debugPrint('AdManager: requesting interstitial load');
+    final String unitId = adUnitIdFor(placement);
+    if (kDebugMode) {
+      debugPrint('AdManager: requesting load — ${placement.name} ($unitId)');
+    }
     InterstitialAd.load(
-      adUnitId: interstitialAdUnitId,
+      adUnitId: unitId,
       request: adRequest,
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (final InterstitialAd ad) {
-          _interstitialAd = ad;
-          _loadingInterstitial = false;
-          if (kDebugMode) debugPrint('AdManager: interstitial loaded');
+          _interstitials[placement] = ad;
+          _loadingInterstitials[placement] = false;
+          if (kDebugMode) {
+            debugPrint('AdManager: ${placement.name} loaded');
+          }
         },
         onAdFailedToLoad: (final LoadAdError err) {
-          _interstitialAd = null;
-          _loadingInterstitial = false;
+          _interstitials[placement] = null;
+          _loadingInterstitials[placement] = false;
           if (kDebugMode) {
-            debugPrint('AdManager: interstitial load failed — $err');
+            debugPrint('AdManager: ${placement.name} load failed — $err');
           }
         },
       ),
     );
   }
 
-  /// Shows the pre-loaded interstitial if one is ready and immediately
-  /// kicks off loading the next one. If no ad is ready yet (slow network
-  /// / first call), this returns without showing — by design, we never
-  /// block the user waiting for an ad.
-  ///
-  /// **Master gate:** if remote `show_ads` is false, this is a no-op.
-  /// Per-slot toggles (e.g. `show_interstitial_on_play_again`) are
-  /// enforced by the slot-specific helpers below; calling this method
-  /// directly bypasses those.
-  Future<void> showInterstitial({final String? reason}) async {
+  /// Internal: shows the cached interstitial for [placement] if one is
+  /// ready, otherwise schedules a pre-load and returns silently. Honors
+  /// the master `show_ads` flag; per-slot toggles are enforced by the
+  /// public slot helpers.
+  Future<void> _showInterstitialFor(
+    final AdPlacement placement, {
+    final String? reason,
+  }) async {
     if (!SettingsService.instance.showAds) {
       if (kDebugMode) {
-        debugPrint('AdManager: skipped (show_ads=false, reason=$reason)');
+        debugPrint(
+          'AdManager: skipped (show_ads=false, slot=${placement.name}, '
+          'reason=$reason)',
+        );
       }
       return;
     }
-    final InterstitialAd? ad = _interstitialAd;
+    final InterstitialAd? ad = _interstitials[placement];
     if (ad == null) {
-      _preloadInterstitial();
+      _preloadInterstitial(placement);
       if (kDebugMode) {
-        debugPrint('AdManager: interstitial not ready (reason=$reason)');
+        debugPrint(
+          'AdManager: ${placement.name} not ready (reason=$reason) — '
+          'scheduled preload',
+        );
       }
       return;
     }
-    _interstitialAd = null;
+    _interstitials[placement] = null;
 
     final Completer<void> dismissed = Completer<void>();
     ad.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
       onAdDismissedFullScreenContent: (final InterstitialAd ad) {
         ad.dispose();
-        _preloadInterstitial();
+        _preloadInterstitial(placement);
         if (!dismissed.isCompleted) dismissed.complete();
       },
-      onAdFailedToShowFullScreenContent: (
-        final InterstitialAd ad,
-        final AdError err,
-      ) {
-        ad.dispose();
-        _preloadInterstitial();
-        if (kDebugMode) debugPrint('AdManager: show failed — $err');
-        if (!dismissed.isCompleted) dismissed.complete();
-      },
+      onAdFailedToShowFullScreenContent:
+          (final InterstitialAd ad, final AdError err) {
+            ad.dispose();
+            _preloadInterstitial(placement);
+            if (kDebugMode) {
+              debugPrint('AdManager: ${placement.name} show failed — $err');
+            }
+            if (!dismissed.isCompleted) dismissed.complete();
+          },
     );
-    if (kDebugMode) debugPrint('AdManager: showing interstitial ($reason)');
+    if (kDebugMode) {
+      debugPrint('AdManager: showing ${placement.name} (reason=$reason)');
+    }
     await ad.show();
     await dismissed.future;
   }
@@ -236,11 +329,11 @@ class AdManager {
   // Each method below combines the master `show_ads` flag with the
   // per-slot toggle and (where applicable) the frequency threshold from
   // [SettingsService]. Call sites use these helpers rather than
-  // [showInterstitial] directly so the gating stays in one place.
+  // [_showInterstitialFor] directly so the gating stays in one place.
 
   /// Increment navigation counter; if it hits the remote threshold and
-  /// the slot is enabled, show an interstitial and reset. Returns
-  /// whether an ad fired.
+  /// the slot is enabled, show the navigation interstitial and reset.
+  /// Returns whether an ad fired.
   Future<bool> recordNavigation() async {
     final SettingsService s = SettingsService.instance;
     if (!s.showAds || !s.showInterstitialOnScreenNavigation) return false;
@@ -249,21 +342,20 @@ class AdManager {
     final int every = s.interstitialEveryNthNavPush;
     if (_navigationCount >= every) {
       _navigationCount = 0;
-      await showInterstitial(reason: 'navigation-${every}x');
+      await _showInterstitialFor(
+        AdPlacement.navigationInterstitial,
+        reason: 'navigation-${every}x',
+      );
       return true;
     }
     return false;
   }
 
-  /// Increment the goal counter and report whether the next goal slot
-  /// should fire a paid interstitial. Returns `true` on every Nth goal
-  /// when ads are enabled and the goal slot is on; in that case the
-  /// caller should **skip** the house Amazon promo and call
-  /// [showInterstitial] (or rely on the play-loop's own dispatch).
-  ///
-  /// We always increment so the cadence stays stable across remote
-  /// toggle flips — flipping `show_interstitial_on_goal` off then on
-  /// mid-match shouldn't suddenly fire an ad on the very next goal.
+  /// Synchronous check: should the next goal slot fire a paid
+  /// interstitial? Always increments so the cadence stays stable across
+  /// remote toggle flips. Caller uses the return value to decide whether
+  /// to show the house Amazon promo instead — if `true`, call
+  /// [showGoalInterstitial] and skip the promo.
   bool shouldShowGoalInterstitial() {
     _goalCount++;
     final SettingsService s = SettingsService.instance;
@@ -271,12 +363,22 @@ class AdManager {
     return _goalCount % s.interstitialOnEveryNthGoal == 0;
   }
 
+  /// Fires the goal-slot interstitial. Pair with
+  /// [shouldShowGoalInterstitial] (the bool gate stays synchronous so
+  /// the caller can decide between paid ad and house promo without
+  /// awaiting).
+  Future<void> showGoalInterstitial() =>
+      _showInterstitialFor(AdPlacement.goalInterstitial, reason: 'goal-nth');
+
   /// Post-match interstitial fired from the "Play Again" button on the
   /// game-over screen. No-op when ads are off or the slot is disabled.
   Future<void> showPlayAgainInterstitial() async {
     final SettingsService s = SettingsService.instance;
     if (!s.showAds || !s.showInterstitialOnPlayAgain) return;
-    await showInterstitial(reason: 'play-again');
+    await _showInterstitialFor(
+      AdPlacement.playAgainInterstitial,
+      reason: 'play-again',
+    );
   }
 
   /// In-match interstitial fired from the side-panel "Restart" button.
@@ -284,6 +386,9 @@ class AdManager {
   Future<void> showRestartInterstitial() async {
     final SettingsService s = SettingsService.instance;
     if (!s.showAds || !s.showInterstitialOnRestartGame) return;
-    await showInterstitial(reason: 'restart');
+    await _showInterstitialFor(
+      AdPlacement.restartInterstitial,
+      reason: 'restart',
+    );
   }
 }

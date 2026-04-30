@@ -74,7 +74,7 @@ class _GameScreenState extends State<GameScreen> {
               // Cadence + toggles come from remote `app_settings`; see
               // [AdManager.shouldShowGoalInterstitial].
               if (AdManager.instance.shouldShowGoalInterstitial()) {
-                AdManager.instance.showInterstitial(reason: 'goal-nth');
+                AdManager.instance.showGoalInterstitial();
               } else if (!_showGoalAd) {
                 setState(() => _showGoalAd = true);
               }

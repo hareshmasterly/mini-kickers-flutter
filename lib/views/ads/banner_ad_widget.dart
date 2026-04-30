@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:mini_kickers/utils/ad_manager.dart';
 
+// Re-export AdPlacement so screens that include this widget can pass the
+// placement parameter without a second import.
+export 'package:mini_kickers/utils/ad_manager.dart' show AdPlacement;
+
 /// Drop-in adaptive AdMob banner.
 ///
 /// Pinned at the bottom of any screen. Sizes itself to the available
@@ -10,8 +14,14 @@ import 'package:mini_kickers/utils/ad_manager.dart';
 /// phones (full width strip) and tablets (taller leaderboard-ish).
 /// Fails silent — if the ad can't load, the widget renders nothing,
 /// the surrounding layout is unchanged.
+///
+/// [placement] selects the AdMob unit id — each placement has a distinct
+/// id so per-screen revenue and fill rate can be tracked independently
+/// in the AdMob console.
 class BannerAdWidget extends StatefulWidget {
-  const BannerAdWidget({super.key});
+  const BannerAdWidget({super.key, required this.placement});
+
+  final AdPlacement placement;
 
   @override
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
@@ -50,25 +60,30 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
       _loading = false;
       if (kDebugMode) {
         debugPrint(
-          'BannerAd: getAnchoredAdaptiveBannerAdSize returned null '
+          'BannerAd[${widget.placement.name}]: '
+          'getAnchoredAdaptiveBannerAdSize returned null '
           '(width=$width) — skipping',
         );
       }
       return;
     }
+    final String unitId =
+        AdManager.instance.adUnitIdFor(widget.placement);
     if (kDebugMode) {
       debugPrint(
-        'BannerAd: requesting size=${size.width}x${size.height} '
-        'unit=${AdManager.instance.bannerAdUnitId}',
+        'BannerAd[${widget.placement.name}]: requesting '
+        'size=${size.width}x${size.height} unit=$unitId',
       );
     }
     final BannerAd ad = BannerAd(
-      adUnitId: AdManager.instance.bannerAdUnitId,
+      adUnitId: unitId,
       size: size,
       request: AdManager.instance.adRequest,
       listener: BannerAdListener(
         onAdLoaded: (final Ad _) {
-          if (kDebugMode) debugPrint('BannerAd: loaded');
+          if (kDebugMode) {
+            debugPrint('BannerAd[${widget.placement.name}]: loaded');
+          }
           if (!mounted) return;
           setState(() {
             _loaded = true;
@@ -77,7 +92,11 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
         },
         onAdFailedToLoad: (final Ad ad, final LoadAdError err) {
           ad.dispose();
-          if (kDebugMode) debugPrint('BannerAd: failed to load — $err');
+          if (kDebugMode) {
+            debugPrint(
+              'BannerAd[${widget.placement.name}]: failed to load — $err',
+            );
+          }
           if (!mounted) return;
           setState(() {
             _ad = null;

@@ -56,7 +56,16 @@ dev_dependencies:
   freezed: ^3.0.6
   flutter_flavorizr: ^2.4.1
   flutter_launcher_icons: ^0.14.4
-  flutter_native_splash: ^2.4.6
+  # flutter_native_splash is a code generator only — its job (creating the
+  # native splash drawables under android/app/src/main/res/drawable* and the
+  # iOS LaunchScreen) is done. We keep it OUT of the build because Flutter's
+  # Gradle plugin excludes dev_dependency AARs from the app, but
+  # GeneratedPluginRegistrant.java still emits a registration call for it,
+  # causing "package net.jonhanson.flutter_native_splash does not exist".
+  # To regenerate splash assets: temporarily uncomment, run
+  #   dart run flutter_native_splash:create
+  # then comment it out again and run `flutter clean && flutter pub get`.
+  # flutter_native_splash: ^2.4.6
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -108,12 +117,32 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
 
+# Launcher icons (Android only — iOS already updated by hand).
+# Regenerate any time the source PNGs in assets/icon/ change with:
+#   dart run flutter_launcher_icons
+# Source files:
+#   - icon_background.png : full composed icon (RGB) — used for legacy Android <8 launcher
+#   - icon_foreground.png : transparent scene  (RGBA) — adaptive-icon foreground layer
+# Adaptive background uses the app's stadiumDeep color (#02110A) as a flat fill so the
+# foreground (insetted 16% per mipmap-anydpi-v26/launcher_icon.xml) doesn't visually
+# double up against the same composed scene.
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: false
+  image_path: "assets/icon/icon_background.png"
+  adaptive_icon_background: "#02110A"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+  min_sdk_android: 21
+
 flavorizr:
   flavors:
     staging:
       app:
         name: "Mini Kickers Staging"
       android:
+        # Staging and prod share one applicationId for now — see the
+        # comment in android/app/flavorizr.gradle.kts for the trade-offs
+        # (no side-by-side install, shared Firebase analytics).
         applicationId: "com.masterly.minikickers"
       ios:
         bundleId: "com.masterly.minikickers"

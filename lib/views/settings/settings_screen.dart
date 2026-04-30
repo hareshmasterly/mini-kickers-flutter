@@ -187,7 +187,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // if no ad loads, so layout is unchanged when the slot is on
           // but unfilled. See [BannerAdWidget].
           if (_settings.showAds && _settings.showSettingsBanner)
-            const Center(child: BannerAdWidget()),
+            const Center(
+              child: BannerAdWidget(placement: AdPlacement.settingsBanner),
+            ),
         ],
       ),
     );

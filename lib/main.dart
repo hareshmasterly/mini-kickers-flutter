@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
@@ -35,15 +36,37 @@ Future<void> main() async {
     await Firebase.initializeApp();
   }
 
-  // try {
-  //   await FirebaseAppCheck.instance.activate(
-  //     providerAndroid: const AndroidPlayIntegrityProvider(),
-  //     providerApple: const AppleDeviceCheckProvider(),
-  //   );
-  //   debugPrint('App Check initialized successfully');
-  // } catch (e) {
-  //   debugPrint('Error initializing App Check: $e');
-  // }
+  // Firebase App Check — attests that requests come from a genuine app
+  // instance, blocking abuse of the open Firestore reads (`app_settings` and
+  // `faqs`). Wrapped in try/catch + non-blocking unawaited so a Play
+  // Integrity / DeviceCheck failure (e.g. emulator without Play Services,
+  // or before App Check is enabled in the Firebase Console) NEVER prevents
+  // app launch — Firestore will just see un-attested requests, same as
+  // today. In debug builds we use the debug provider; in release we use
+  // the platform attestation providers.
+  unawaited(
+    () async {
+      try {
+        await FirebaseAppCheck.instance.activate(
+          providerAndroid: kReleaseMode
+              ? const AndroidPlayIntegrityProvider()
+              : const AndroidDebugProvider(),
+          providerApple: kReleaseMode
+              ? const AppleDeviceCheckProvider()
+              : const AppleDebugProvider(),
+        );
+        debugPrint('App Check initialized (release=$kReleaseMode)');
+      } catch (e, st) {
+        debugPrint('App Check init failed (non-fatal): $e');
+        if (kReleaseMode) {
+          unawaited(
+            FirebaseCrashlytics.instance
+                .recordError(e, st, reason: 'AppCheck activate failed'),
+          );
+        }
+      }
+    }(),
+  );
 
   if (kReleaseMode) {
     FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
