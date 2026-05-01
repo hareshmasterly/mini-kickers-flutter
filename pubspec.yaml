@@ -46,6 +46,7 @@ dependencies:
   firebase_app_check: ^0.4.1+3
   cloud_firestore: ^6.3.0
   google_mobile_ads: ^6.0.0
+  package_info_plus: ^9.0.0
 
 dev_dependencies:
   flutter_test:

@@ -109,6 +109,11 @@ class GameBloc extends Bloc<GameEvent, GameState> {
       AudioHelper.noMoves();
       emit(state.copyWith(
         dice: d,
+        // Per-team dice mirrors the shared `dice` for the active side
+        // only — the inactive side keeps its previous value so its
+        // panel's cube stops "ghost-updating".
+        redDice: state.turn == Team.red ? d : state.redDice,
+        blueDice: state.turn == Team.blue ? d : state.blueDice,
         phase: GamePhase.move,
         isRolling: false,
         highlights: const <Pos>[],
@@ -133,6 +138,9 @@ class GameBloc extends Bloc<GameEvent, GameState> {
 
     emit(state.copyWith(
       dice: d,
+      // Per-team dice mirrors `dice` for the active side only.
+      redDice: state.turn == Team.red ? d : state.redDice,
+      blueDice: state.turn == Team.blue ? d : state.blueDice,
       phase: GamePhase.move,
       isRolling: false,
       highlights: const <Pos>[],
@@ -318,6 +326,12 @@ class GameBloc extends Bloc<GameEvent, GameState> {
     );
     emit(state.copyWith(
       dice: event.diceValue,
+      // Same per-team mirror as the regular roll handler — the active
+      // side's panel-cube updates, the inactive side stays put.
+      redDice:
+          state.turn == Team.red ? event.diceValue : state.redDice,
+      blueDice:
+          state.turn == Team.blue ? event.diceValue : state.blueDice,
       phase: GamePhase.moveBall,
       highlights: reach,
       isRolling: false,

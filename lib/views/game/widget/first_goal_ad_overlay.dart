@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/utils/amazon_launcher.dart';
+import 'package:mini_kickers/utils/analytics_helper.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/responsive.dart';
 
@@ -31,17 +32,24 @@ class FirstGoalAdOverlay extends StatefulWidget {
 }
 
 class _FirstGoalAdOverlayState extends State<FirstGoalAdOverlay>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const Duration _autoCloseAfter = Duration(seconds: 10);
 
   late final AnimationController _entry;
   late final AnimationController _ambient;
   late final AnimationController _countdown;
   bool _dismissing = false;
+  // True after the user taps BUY and we navigate to Amazon. When the
+  // app resumes from background we use this to auto-dismiss the
+  // overlay — without this flag, users came back from the browser to
+  // a stuck overlay (the auto-close countdown is intentionally paused
+  // on BUY) and had to force-quit the app to recover.
+  bool _wentToAmazon = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _entry = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
@@ -65,10 +73,26 @@ class _FirstGoalAdOverlayState extends State<FirstGoalAdOverlay>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _entry.dispose();
     _ambient.dispose();
     _countdown.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(final AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // When the app comes back from background AND the user had tapped
+    // BUY (so they went to Amazon), auto-dismiss the overlay. The user
+    // already engaged with the link — keeping a stuck overlay around
+    // just blocks them from continuing the match.
+    if (state == AppLifecycleState.resumed &&
+        _wentToAmazon &&
+        !_dismissing &&
+        mounted) {
+      _close();
+    }
   }
 
   Future<void> _close() async {
@@ -83,9 +107,13 @@ class _FirstGoalAdOverlayState extends State<FirstGoalAdOverlay>
 
   Future<void> _onBuy() async {
     // Pause the auto-close — user is engaging. They can dismiss
-    // manually via the close X or LATER when they return.
+    // manually via the close X or LATER when they return. The
+    // [_wentToAmazon] flag triggers an auto-dismiss in
+    // [didChangeAppLifecycleState] when they return to the app.
     _countdown.stop();
+    _wentToAmazon = true;
     AudioHelper.hapticHeavy();
+    Analytics.logAmazonTap(source: 'goal_overlay');
     await AmazonLauncher.openProductPage();
   }
 

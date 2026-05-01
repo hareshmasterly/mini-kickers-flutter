@@ -9,12 +9,24 @@ class Dice3DCube extends StatefulWidget {
     required this.isRolling,
     required this.glowColor,
     this.size = 84,
+    this.isEnabled = true,
+    this.onTap,
   });
 
   final int? value;
   final bool isRolling;
   final Color glowColor;
   final double size;
+
+  /// When `false`, the dice is dimmed (low opacity, no glow pulse, taps
+  /// ignored). Used to indicate it's the OTHER team's turn.
+  final bool isEnabled;
+
+  /// Optional tap callback. When provided AND [isEnabled] is true, the cube
+  /// becomes the roll button — wraps the entire dice area in a
+  /// [GestureDetector] with an opaque hit-test so the full visual region
+  /// (including the soft halo) is tappable.
+  final VoidCallback? onTap;
 
   @override
   State<Dice3DCube> createState() => _Dice3DCubeState();
@@ -226,10 +238,14 @@ class _Dice3DCubeState extends State<Dice3DCube>
     final double tumblePulse = widget.isRolling
         ? (1.0 + sin(_tumble.value * pi * 6) * 0.04)
         : 1.0;
-    final double glow = widget.isRolling ? 0.85 : 0.5;
+    // Glow intensity: full when rolling, medium when enabled & idle, low
+    // when disabled (the dice on the OTHER team's side).
+    final double glow = widget.isRolling
+        ? 0.85
+        : (widget.isEnabled ? 0.55 : 0.12);
     final double containerSize = s * 1.15;
 
-    return SizedBox(
+    final Widget cube = SizedBox(
       width: containerSize,
       height: containerSize,
       child: Center(
@@ -246,11 +262,13 @@ class _Dice3DCubeState extends State<Dice3DCube>
                   boxShadow: <BoxShadow>[
                     BoxShadow(
                       color: widget.glowColor.withValues(alpha: glow),
-                      blurRadius: 28,
-                      spreadRadius: 2,
+                      blurRadius: widget.isEnabled ? 28 : 12,
+                      spreadRadius: widget.isEnabled ? 2 : 0,
                     ),
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.55),
+                      color: Colors.black.withValues(
+                        alpha: widget.isEnabled ? 0.55 : 0.3,
+                      ),
                       blurRadius: 16,
                       offset: const Offset(0, 8),
                     ),
@@ -286,6 +304,24 @@ class _Dice3DCubeState extends State<Dice3DCube>
           ],
         ),
       ),
+    );
+
+    // Apply the disabled visual treatment (lower opacity + slight
+    // desaturation so the inactive team's dice is unmistakably "off").
+    final Widget visual = AnimatedOpacity(
+      duration: const Duration(milliseconds: 220),
+      opacity: widget.isEnabled ? 1.0 : 0.42,
+      child: cube,
+    );
+
+    // Wrap with GestureDetector when tappable. HitTestBehavior.opaque so
+    // the full container area (including the soft halo around the cube)
+    // catches taps — much easier on mobile than aiming for the cube faces.
+    if (widget.onTap == null) return visual;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.isEnabled ? widget.onTap : null,
+      child: visual,
     );
   }
 }

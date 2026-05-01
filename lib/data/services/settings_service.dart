@@ -79,8 +79,11 @@ class SettingsService extends ChangeNotifier {
 
   // ── Getters: audio / haptics (no remote layer) ────────────────────────
   bool get soundEnabled => _soundEnabled;
+
   bool get musicEnabled => _musicEnabled;
+
   bool get hapticsEnabled => _hapticsEnabled;
+
   bool get commentaryEnabled => _commentaryEnabled;
 
   // ── Getters: layered (override → remote → fallback) ───────────────────
@@ -101,8 +104,7 @@ class SettingsService extends ChangeNotifier {
   int get matchSeconds {
     if (_matchSecondsUserSet) {
       final bool stillOffered = availableMatchDurations.any(
-        (final ({int seconds, String label}) d) =>
-            d.seconds == _matchSeconds,
+        (final ({int seconds, String label}) d) => d.seconds == _matchSeconds,
       );
       if (stillOffered) return _matchSeconds;
     }
@@ -151,17 +153,22 @@ class SettingsService extends ChangeNotifier {
   /// interstitials) are suppressed. The in-house Amazon-promo overlay
   /// shown after goals is **not** gated by this flag — it's owned media,
   /// not a paid ad.
-  bool get showAds => _remote?.showAds ?? true;
+  bool get showAds => _remote?.showAds ?? false;
 
-  bool get showGuideBanner => _remote?.showGuideBanner ?? true;
-  bool get showSettingsBanner => _remote?.showSettingsBanner ?? true;
-  bool get showInterstitialOnGoal => _remote?.showInterstitialOnGoal ?? true;
+  bool get showGuideBanner => _remote?.showGuideBanner ?? false;
+
+  bool get showSettingsBanner => _remote?.showSettingsBanner ?? false;
+
+  bool get showInterstitialOnGoal => _remote?.showInterstitialOnGoal ?? false;
+
   bool get showInterstitialOnPlayAgain =>
-      _remote?.showInterstitialOnPlayAgain ?? true;
+      _remote?.showInterstitialOnPlayAgain ?? false;
+
   bool get showInterstitialOnRestartGame =>
-      _remote?.showInterstitialOnRestartGame ?? true;
+      _remote?.showInterstitialOnRestartGame ?? false;
+
   bool get showInterstitialOnScreenNavigation =>
-      _remote?.showInterstitialOnScreenNavigation ?? true;
+      _remote?.showInterstitialOnScreenNavigation ?? false;
 
   /// Every Nth goal swaps the house Amazon promo for a paid interstitial.
   /// Clamped to ≥ 1 so a misconfigured `0` doesn't fire on every goal.
@@ -180,7 +187,8 @@ class SettingsService extends ChangeNotifier {
   /// hardcoded set. Consumers (e.g. PalettePicker) should iterate this
   /// rather than [TeamPalettes.all] directly.
   List<TeamPalette> get availablePalettes {
-    final List<TeamPalette> remote = _remote?.teamColors ?? const <TeamPalette>[];
+    final List<TeamPalette> remote =
+        _remote?.teamColors ?? const <TeamPalette>[];
     return remote.isNotEmpty ? remote : TeamPalettes.all;
   }
 
@@ -214,8 +222,7 @@ class SettingsService extends ChangeNotifier {
     // have been set before the userSet-flag scheme existed).
     if (_prefs!.containsKey(_kMatchSeconds)) {
       _matchSeconds = _prefs!.getInt(_kMatchSeconds)!;
-      _matchSecondsUserSet =
-          _prefs!.getBool(_kMatchSecondsUserSet) ?? true;
+      _matchSecondsUserSet = _prefs!.getBool(_kMatchSecondsUserSet) ?? true;
     }
     if (_prefs!.containsKey(_kPalette)) {
       _paletteId = _prefs!.getString(_kPalette)!;
@@ -367,11 +374,11 @@ class SettingsService extends ChangeNotifier {
   /// `game_durations` is missing or empty. Mirrors the original list.
   static const List<({int seconds, String label})> _fallbackMatchDurations =
       <({int seconds, String label})>[
-    (seconds: 300, label: '5 MIN'),
-    (seconds: 600, label: '10 MIN'),
-    (seconds: 900, label: '15 MIN'),
-    (seconds: 1200, label: '20 MIN'),
-  ];
+        (seconds: 300, label: '5 MIN'),
+        (seconds: 600, label: '10 MIN'),
+        (seconds: 900, label: '15 MIN'),
+        (seconds: 1200, label: '20 MIN'),
+      ];
 }
 
 void debugLogSettings() {
