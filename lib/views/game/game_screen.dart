@@ -85,15 +85,23 @@ class _GameScreenState extends State<GameScreen> {
                     (p.phase != GamePhase.coinToss &&
                         n.phase == GamePhase.coinToss),
             listener: (final BuildContext context, final GameState state) {
-              // New match started — close any lingering promo card.
+              // New match started — close any lingering promo card AND
+              // make sure the AI isn't left paused from a previous goal.
               if (state.phase == GamePhase.coinToss) {
                 if (_showGoalAd) {
                   setState(() => _showGoalAd = false);
                 }
+                _aiController?.resume();
                 return;
               }
               if (state.showGoalFlash) {
                 _shakeController.shake();
+                // Pause the AI as soon as the goal flash starts so it
+                // doesn't sneak a roll in during the flash → ad gap.
+                // We resume in the appropriate branch below once the
+                // overlay (if any) is dismissed, or immediately if no
+                // overlay shows.
+                _aiController?.pause();
                 return;
               }
               // Goal flash just ended.
@@ -104,10 +112,22 @@ class _GameScreenState extends State<GameScreen> {
               // [AdManager.shouldShowGoalInterstitial] and
               // [SettingsService.showAmazonAdOverlay].
               if (AdManager.instance.shouldShowGoalInterstitial()) {
-                AdManager.instance.showGoalInterstitial();
+                // Already paused above. Resume the AI once the
+                // interstitial dismisses so it can finally take its
+                // turn on the freshly-reset board.
+                AdManager.instance.showGoalInterstitial().then((final _) {
+                  if (!mounted) return;
+                  _aiController?.resume();
+                });
               } else if (SettingsService.instance.showAmazonAdOverlay &&
                   !_showGoalAd) {
+                // Already paused. AI resumes inside the FirstGoalAdOverlay
+                // onDismiss callback below.
                 setState(() => _showGoalAd = true);
+              } else {
+                // No overlay → resume immediately so the AI doesn't
+                // stay paused for the rest of the match.
+                _aiController?.resume();
               }
             },
             builder: (final BuildContext context, final GameState state) {
@@ -134,6 +154,9 @@ class _GameScreenState extends State<GameScreen> {
                       onDismiss: () {
                         if (!mounted) return;
                         setState(() => _showGoalAd = false);
+                        // Overlay gone → safe for the AI to resume its
+                        // turn on the now-visible board.
+                        _aiController?.resume();
                       },
                     ),
                 ],

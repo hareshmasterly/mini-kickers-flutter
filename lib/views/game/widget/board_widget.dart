@@ -112,6 +112,12 @@ class BoardWidget extends StatelessWidget {
     final GameState state,
     final double cell,
   ) {
+    // True when the AI owns the current turn — used to disable taps on
+    // every token (including the AI's own pieces) so the player can't
+    // accidentally interfere with the AI's move sequence.
+    final bool isAiTurn =
+        SettingsService.instance.gameMode == GameMode.vsAi &&
+            state.turn == Team.blue;
     return state.tokens.map((final Token t) {
       final bool isSelected = state.selectedTokenId == t.id;
       final bool isSelectable = state.phase == GamePhase.move &&
@@ -125,6 +131,16 @@ class BoardWidget extends StatelessWidget {
       final bool isActiveTeam = t.team == state.turn &&
           (state.phase == GamePhase.roll ||
               state.phase == GamePhase.move);
+      // Tap is allowed only when:
+      //   • we're in the move phase (so a selection actually has effect)
+      //   • the token belongs to the team whose turn it is
+      //   • that team is the human (not the AI in VS AI mode)
+      // The bloc would reject taps that violate these anyway, but
+      // gating at the widget level means no tap audio / press
+      // animation fires for ignored taps either — feels much cleaner.
+      final bool canBeTapped = state.phase == GamePhase.move &&
+          t.team == state.turn &&
+          !isAiTurn;
       return AnimatedToken(
         key: ValueKey<String>(t.id),
         token: t,
@@ -132,8 +148,10 @@ class BoardWidget extends StatelessWidget {
         isSelected: isSelected,
         isSelectable: isSelectable,
         isActiveTeam: isActiveTeam,
-        onTap: () =>
-            context.read<GameBloc>().add(GameEvent.selectToken(id: t.id)),
+        onTap: canBeTapped
+            ? () =>
+                context.read<GameBloc>().add(GameEvent.selectToken(id: t.id))
+            : null,
       );
     }).toList();
   }

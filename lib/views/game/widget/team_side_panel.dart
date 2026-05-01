@@ -53,15 +53,30 @@ class TeamSidePanel extends StatelessWidget {
 
                 final Color teamColor = TeamColors.primary(team);
                 final Color teamLight = TeamColors.light(team);
-                final String teamName = team == Team.red
-                    ? SettingsService.instance.redName
-                    : SettingsService.instance.blueName;
+                // TeamColors.name routes through SettingsService's
+                // displayRedName / displayBlueName, so this resolves to
+                // "AI" for the bot side in VS AI mode automatically.
+                final String teamName = TeamColors.name(team);
                 final int score = team == Team.red
                     ? state.redScore
                     : state.blueScore;
 
                 final bool isMyTurn = state.turn == team;
+                // True when THIS panel belongs to the AI in a VS AI
+                // match (the AI plays Blue per AiController). Used to
+                // suppress tap affordances and to swap captions to
+                // AI-specific copy ("AI THINKING…" instead of "TAP TO
+                // ROLL"). In VS Human mode this is always false and
+                // the panel behaves identically to before.
+                final bool isAiTeam =
+                    SettingsService.instance.gameMode == GameMode.vsAi &&
+                        team == Team.blue;
+                // Dice is tappable only for HUMAN turns — in VS AI mode
+                // the AiController dispatches RollDiceEvent itself and
+                // we must never let the user manually roll on the bot's
+                // behalf.
                 final bool canTap = isMyTurn &&
+                    !isAiTeam &&
                     state.phase == GamePhase.roll &&
                     !state.isRolling;
 
@@ -97,6 +112,7 @@ class TeamSidePanel extends StatelessWidget {
                           team: team,
                           isMyTurn: isMyTurn,
                           canTap: canTap,
+                          isAiTeam: isAiTeam,
                           teamColor: teamColor,
                           teamLight: teamLight,
                           thickness: thickness,
@@ -456,6 +472,7 @@ class _DiceZone extends StatelessWidget {
     required this.team,
     required this.isMyTurn,
     required this.canTap,
+    required this.isAiTeam,
     required this.teamColor,
     required this.teamLight,
     required this.thickness,
@@ -467,6 +484,10 @@ class _DiceZone extends StatelessWidget {
   final Team team;
   final bool isMyTurn;
   final bool canTap;
+  /// True when this panel belongs to the AI in a VS AI match. The dice
+  /// must NOT be tappable in that case (AiController owns the rolls)
+  /// and the caption shows AI-specific copy.
+  final bool isAiTeam;
   final Color teamColor;
   final Color teamLight;
   final double thickness;
@@ -546,6 +567,24 @@ class _DiceZone extends StatelessWidget {
 
   String _captionFor(final GameState state, final bool isMyTurn) {
     if (!isMyTurn) return 'WAITING';
+    // AI-specific copy — no "TAP" prompt because the bot owns its
+    // own actions and we don't want to invite player taps that would
+    // be ignored. The animated dots in the active LIVE pip already
+    // signal "something is happening on this side".
+    if (isAiTeam) {
+      switch (state.phase) {
+        case GamePhase.roll:
+          return state.isRolling ? 'ROLLING…' : 'AI\nTHINKING…';
+        case GamePhase.move:
+          return 'AI\nMOVING…';
+        case GamePhase.moveBall:
+          return 'AI\nKICKING…';
+        case GamePhase.coinToss:
+          return '—';
+        case GamePhase.gameOver:
+          return 'FULL\nTIME';
+      }
+    }
     switch (state.phase) {
       case GamePhase.roll:
         return state.isRolling ? 'ROLLING…' : 'TAP\nTO ROLL';
