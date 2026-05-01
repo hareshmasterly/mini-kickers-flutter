@@ -9,6 +9,7 @@ import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/team_colors.dart';
+import 'package:mini_kickers/utils/ad_manager.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/views/game/widget/confetti_overlay.dart';
 
@@ -520,8 +521,13 @@ class GameOverHost extends StatelessWidget {
         return GameOverWidget(
           redScore: state.redScore,
           blueScore: state.blueScore,
-          onPlayAgain: () =>
-              context.read<GameBloc>().add(const ResetGameEvent()),
+          onPlayAgain: () async {
+            // Post-match interstitial before resetting → coin toss.
+            // Gated remotely by `show_ads` + `show_interstitial_on_play_again`.
+            final GameBloc bloc = context.read<GameBloc>();
+            await AdManager.instance.showPlayAgainInterstitial();
+            bloc.add(const ResetGameEvent());
+          },
           onHome: () {
             if (Navigator.of(context).canPop()) {
               Navigator.of(context).pop();

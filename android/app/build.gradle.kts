@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -5,6 +8,18 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
     id("com.google.firebase.crashlytics")
+}
+
+// Load release-signing credentials from android/keystore/keystore.properties.
+// The file is gitignored — see android/keystore/keystore.properties.example
+// for the expected shape. If the file is missing (e.g. on a fresh clone or
+// CI without secrets) we fall back to debug signing so debug builds still
+// work; release builds will fail loudly via the keystoreProperties check
+// inside `release {}` below.
+val keystorePropertiesFile = rootProject.file("keystore/keystore.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
 android {
@@ -31,11 +46,41 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Use the release keystore when present; fall back to debug signing
+            // so `flutter run --release` works on machines that don't have the
+            // production secrets (e.g. CI smoke checks, fresh clones). The
+            // upload pipeline that produces the Play Store AAB MUST have the
+            // keystore.properties file in place — verify before each release
+            // by checking the AAB's signature with apksigner.
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+
+            // Shrink + obfuscate Java/Kotlin code and strip unused Android
+            // resources. Saves ~5-15MB on a Firebase + AdMob app. Rules in
+            // proguard-rules.pro keep classes that reflection or native code
+            // depend on (Firebase, AdMob, audioplayers, etc.).
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }

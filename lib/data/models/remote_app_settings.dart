@@ -12,6 +12,20 @@ import 'package:mini_kickers/data/models/team_palette.dart';
 ///   • `team_colors` — array of `{id, name, primary1, primary1_light,
 ///     primary2, primary2_light}`, where `primary*` values are
 ///     `0xAARRGGBB` hex strings.
+///   • `show_ads` — bool. Master kill switch. When false, all AdMob
+///     surfaces (banners + interstitials) are suppressed. The in-house
+///     Amazon-promo overlay is unaffected.
+///   • `show_guide_banner` / `show_settings_banner` — bool. Per-screen
+///     toggles for the bottom banner ad.
+///   • `show_interstitial_on_goal` / `show_interstitial_on_play_again` /
+///     `show_interstitial_on_restart_game` /
+///     `show_interstitial_on_screen_naviagtion` (sic — typo preserved
+///     to match the Firestore key) — bool. Per-slot interstitial
+///     toggles.
+///   • `show_interstitial_on_every_Nth_goal` /
+///     `show_interstitial_every_Nth_nav_push` — int. Frequency
+///     thresholds for the goal-based and navigation-based interstitial
+///     triggers respectively.
 class RemoteAppSettings {
   const RemoteAppSettings({
     this.defaultGameDuration,
@@ -19,6 +33,15 @@ class RemoteAppSettings {
     this.teamColors = const <TeamPalette>[],
     this.player1Name,
     this.player2Name,
+    this.showAds,
+    this.showGuideBanner,
+    this.showSettingsBanner,
+    this.showInterstitialOnGoal,
+    this.showInterstitialOnPlayAgain,
+    this.showInterstitialOnRestartGame,
+    this.showInterstitialOnScreenNavigation,
+    this.interstitialOnEveryNthGoal,
+    this.interstitialEveryNthNavPush,
   });
 
   final int? defaultGameDuration;
@@ -26,6 +49,17 @@ class RemoteAppSettings {
   final List<TeamPalette> teamColors;
   final String? player1Name;
   final String? player2Name;
+
+  // ── Ad config (all nullable — `null` means "fall back to default") ────
+  final bool? showAds;
+  final bool? showGuideBanner;
+  final bool? showSettingsBanner;
+  final bool? showInterstitialOnGoal;
+  final bool? showInterstitialOnPlayAgain;
+  final bool? showInterstitialOnRestartGame;
+  final bool? showInterstitialOnScreenNavigation;
+  final int? interstitialOnEveryNthGoal;
+  final int? interstitialEveryNthNavPush;
 
   factory RemoteAppSettings.fromMap(final Map<String, dynamic> data) {
     final List<dynamic> colors = (data['team_colors'] as List<dynamic>?) ??
@@ -50,6 +84,23 @@ class RemoteAppSettings {
           .toList(),
       player1Name: teamName?['player1'] as String?,
       player2Name: teamName?['player2'] as String?,
+      showAds: data['show_ads'] as bool?,
+      showGuideBanner: data['show_guide_banner'] as bool?,
+      showSettingsBanner: data['show_settings_banner'] as bool?,
+      showInterstitialOnGoal: data['show_interstitial_on_goal'] as bool?,
+      showInterstitialOnPlayAgain:
+          data['show_interstitial_on_play_again'] as bool?,
+      showInterstitialOnRestartGame:
+          data['show_interstitial_on_restart_game'] as bool?,
+      // NB: Firestore key is misspelled (`naviagtion`); we mirror the
+      // misspelling here so the lookup succeeds. Rename in Firestore +
+      // here together when convenient.
+      showInterstitialOnScreenNavigation:
+          data['show_interstitial_on_screen_naviagtion'] as bool?,
+      interstitialOnEveryNthGoal:
+          (data['show_interstitial_on_every_Nth_goal'] as num?)?.toInt(),
+      interstitialEveryNthNavPush:
+          (data['show_interstitial_every_Nth_nav_push'] as num?)?.toInt(),
     );
   }
 

@@ -141,6 +141,41 @@ class SettingsService extends ChangeNotifier {
     return _remote?.player2Name ?? _fallbackBlueName;
   }
 
+  // ── Ad config (all remote-driven, with safe defaults) ────────────────
+  //
+  // Defaults match the live Firestore values — so an offline first-launch
+  // user sees the same behaviour the team is shipping today. Flip any
+  // value remotely to override without an app update.
+
+  /// Master ad kill switch. When false, all AdMob surfaces (banners +
+  /// interstitials) are suppressed. The in-house Amazon-promo overlay
+  /// shown after goals is **not** gated by this flag — it's owned media,
+  /// not a paid ad.
+  bool get showAds => _remote?.showAds ?? true;
+
+  bool get showGuideBanner => _remote?.showGuideBanner ?? true;
+  bool get showSettingsBanner => _remote?.showSettingsBanner ?? true;
+  bool get showInterstitialOnGoal => _remote?.showInterstitialOnGoal ?? true;
+  bool get showInterstitialOnPlayAgain =>
+      _remote?.showInterstitialOnPlayAgain ?? true;
+  bool get showInterstitialOnRestartGame =>
+      _remote?.showInterstitialOnRestartGame ?? true;
+  bool get showInterstitialOnScreenNavigation =>
+      _remote?.showInterstitialOnScreenNavigation ?? true;
+
+  /// Every Nth goal swaps the house Amazon promo for a paid interstitial.
+  /// Clamped to ≥ 1 so a misconfigured `0` doesn't fire on every goal.
+  int get interstitialOnEveryNthGoal {
+    final int n = _remote?.interstitialOnEveryNthGoal ?? 5;
+    return n < 1 ? 1 : n;
+  }
+
+  /// Every Nth navigation push fires an interstitial.
+  int get interstitialEveryNthNavPush {
+    final int n = _remote?.interstitialEveryNthNavPush ?? 5;
+    return n < 1 ? 1 : n;
+  }
+
   /// Available palettes: remote list if non-empty, otherwise the
   /// hardcoded set. Consumers (e.g. PalettePicker) should iterate this
   /// rather than [TeamPalettes.all] directly.
@@ -347,6 +382,17 @@ void debugLogSettings() {
       'haptics:${s.hapticsEnabled} commentary:${s.commentaryEnabled} '
       'matchSeconds:${s.matchSeconds} palette:${s.palette.name} '
       'red:${s.redName} blue:${s.blueName}',
+    );
+    debugPrint(
+      'Settings/ads — showAds:${s.showAds} '
+      'goalEvery:${s.interstitialOnEveryNthGoal} '
+      'navEvery:${s.interstitialEveryNthNavPush} '
+      'goal:${s.showInterstitialOnGoal} '
+      'playAgain:${s.showInterstitialOnPlayAgain} '
+      'restart:${s.showInterstitialOnRestartGame} '
+      'nav:${s.showInterstitialOnScreenNavigation} '
+      'guideBanner:${s.showGuideBanner} '
+      'settingsBanner:${s.showSettingsBanner}',
     );
   }
 }

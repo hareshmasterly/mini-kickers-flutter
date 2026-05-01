@@ -10,6 +10,7 @@ import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/team_colors.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
+import 'package:mini_kickers/views/game/widget/team_setup_strip.dart';
 
 class CoinTossHost extends StatelessWidget {
   const CoinTossHost({super.key});
@@ -131,14 +132,42 @@ class _CoinTossWidgetState extends State<CoinTossWidget>
                 color: Colors.black.withValues(alpha: 0.7 * t),
               ),
             ),
-            Center(
-              child: Opacity(
-                opacity: t,
-                child: Transform.translate(
-                  offset: Offset(0, 24 * (1 - t)),
-                  child: _buildCard(),
-                ),
-              ),
+            // LayoutBuilder + SingleChildScrollView is a safety net so
+            // the card never overflows the viewport. We use a Column
+            // (not Center) inside ConstrainedBox because Center expands
+            // to fill its parent and would clip an oversized child
+            // without the SCV knowing it should scroll. Column with
+            // mainAxisSize.min reports its actual content height, so
+            // the SCV correctly enables scrolling when the card is
+            // taller than the viewport, while mainAxisAlignment.center
+            // still vertically centers the card when it fits.
+            LayoutBuilder(
+              builder: (
+                final BuildContext context,
+                final BoxConstraints constraints,
+              ) {
+                return SingleChildScrollView(
+                  padding: EdgeInsets.zero,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        Opacity(
+                          opacity: t,
+                          child: Transform.translate(
+                            offset: Offset(0, 24 * (1 - t)),
+                            child: _buildCard(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         );
@@ -159,16 +188,19 @@ class _CoinTossWidgetState extends State<CoinTossWidget>
     final bool isTablet = !compact && screen.shortestSide >= 600;
 
     final EdgeInsets cardPad = compact
-        ? const EdgeInsets.fromLTRB(24, 18, 24, 18)
+        ? const EdgeInsets.fromLTRB(20, 14, 20, 14)
         : isTablet
             ? const EdgeInsets.fromLTRB(40, 40, 40, 36)
-            : const EdgeInsets.fromLTRB(28, 28, 28, 26);
-    final double titleFont = compact ? 24 : (isTablet ? 48 : 30);
+            : const EdgeInsets.fromLTRB(28, 22, 28, 20);
+    final double titleFont = compact ? 22 : (isTablet ? 48 : 28);
     final double subtitleFont = compact ? 11 : (isTablet ? 16 : 12);
-    final double gapAfterSubtitle =
-        compact ? 14 : (isTablet ? 36 : 24);
-    final double gapAfterCoin = compact ? 14 : (isTablet ? 32 : 22);
-    final double coinSize = compact ? 100 : (isTablet ? 220 : 140);
+    // Tighter gaps now that the strip occupies space above the coin.
+    // Compact + regular tiers are squeezed enough that we shave every
+    // gap; tablet has plenty of room so it stays generous.
+    final double gapAfterSubtitle = compact ? 6 : (isTablet ? 20 : 8);
+    final double gapAfterStrip = compact ? 6 : (isTablet ? 22 : 10);
+    final double gapAfterCoin = compact ? 8 : (isTablet ? 32 : 14);
+    final double coinSize = compact ? 84 : (isTablet ? 220 : 116);
     final double idleBob = compact ? 4 : (isTablet ? 8 : 6);
     final double cardMaxWidth = isTablet ? 600 : 420;
 
@@ -222,6 +254,19 @@ class _CoinTossWidgetState extends State<CoinTossWidget>
               ),
             ),
             SizedBox(height: gapAfterSubtitle),
+            // Tappable team chips — surface name + palette controls
+            // here so users find them in the natural pre-match moment
+            // (otherwise buried in Settings). Dimmed + non-interactive
+            // during the flip so it doesn't compete with the coin.
+            AnimatedOpacity(
+              opacity: _isFlipping || _showResult ? 0.25 : 1,
+              duration: const Duration(milliseconds: 220),
+              child: IgnorePointer(
+                ignoring: _isFlipping || _showResult,
+                child: TeamSetupStrip(compact: compact, isTablet: isTablet),
+              ),
+            ),
+            SizedBox(height: gapAfterStrip),
             _CoinDisplay(
               flip: _flip,
               idle: _idle,
