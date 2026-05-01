@@ -134,16 +134,26 @@ class _AnimatedTokenState extends State<AnimatedToken>
     // Web parity: ring is 0.89 × cell.
     final double dashRingSize = widget.cell * 0.89;
 
+    // Position the AnimatedPositioned at the FULL cell so the GestureDetector
+    // catches taps anywhere in the cell (mobile users were missing the
+    // smaller visible token shape — `size` is only 67% of the cell). The
+    // visible token is then centered inside via Center+SizedBox so it
+    // looks identical to before; only the hit area changed.
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 480),
       curve: Curves.easeOutCubic,
-      left: widget.token.c * widget.cell + (widget.cell - size) / 2,
-      top: widget.token.r * widget.cell + (widget.cell - size) / 2,
-      width: size,
-      height: size,
+      left: widget.token.c * widget.cell,
+      top: widget.token.r * widget.cell,
+      width: widget.cell,
+      height: widget.cell,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
-        child: AnimatedBuilder(
+        child: Center(
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: AnimatedBuilder(
           animation: Listenable.merge(<Listenable>[
             _arrival,
             _selectableLoop,
@@ -256,6 +266,8 @@ class _AnimatedTokenState extends State<AnimatedToken>
               ),
             );
           },
+            ),
+          ),
         ),
       ),
     );

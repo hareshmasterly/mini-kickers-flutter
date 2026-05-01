@@ -3,6 +3,13 @@ import 'package:mini_kickers/data/models/game_models.dart';
 class GameLogic {
   GameLogic._();
 
+  /// [ball] is the current ball position. It's used as an exception to the
+  /// "tokens cannot enter goal columns" rule: a token IS allowed to land on
+  /// the ball's cell even if that cell is in column 0 or column 10. Without
+  /// this exception, a ball that ends up in a goal column outside the net
+  /// rows (e.g. col 0 row 1) gets permanently stuck — no token could ever
+  /// reach it to kick it back into play. Pass `null` only from contexts
+  /// where the ball position is unknown; new code should always pass it.
   static List<Pos> getReachable({
     required final List<Token> tokens,
     required final Team turn,
@@ -10,6 +17,7 @@ class GameLogic {
     required final int sr,
     required final int steps,
     required final bool isBall,
+    final Pos? ball,
   }) {
     final Set<Pos> results = <Pos>{};
     final Set<Pos> visited = <Pos>{Pos(sc, sr)};
@@ -21,13 +29,22 @@ class GameLogic {
       return false;
     }
 
+    bool isBallCell(final int c, final int r) =>
+        ball != null && ball.c == c && ball.r == r;
+
     void dfs(final int c, final int r, final int rem) {
       if (rem == 0) {
         if (occupied(c, r)) return;
 
         if (!isBall) {
           if (GameConfig.isGoalCell(c, r)) return;
-          if (c == 0 || c == GameConfig.cols - 1) return;
+          // Tokens are normally blocked from goal columns 0 and 10, BUT a
+          // token is allowed to land on the ball's cell even there — that's
+          // how a ball stuck in a goal column (outside net rows) gets back
+          // into play. Without this exception the game can deadlock.
+          if ((c == 0 || c == GameConfig.cols - 1) && !isBallCell(c, r)) {
+            return;
+          }
         }
 
         if (isBall && r >= 2 && r <= 4) {
@@ -67,6 +84,7 @@ class GameLogic {
     required final List<Token> tokens,
     required final Team turn,
     required final int dice,
+    final Pos? ball,
   }) {
     for (final Token t in tokens) {
       if (t.team != turn) continue;
@@ -77,6 +95,7 @@ class GameLogic {
         sr: t.r,
         steps: dice,
         isBall: false,
+        ball: ball,
       );
       if (reach.isNotEmpty) return true;
     }

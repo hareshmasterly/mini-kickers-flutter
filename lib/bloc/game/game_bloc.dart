@@ -102,6 +102,7 @@ class GameBloc extends Bloc<GameEvent, GameState> {
       tokens: state.tokens,
       turn: state.turn,
       dice: d,
+      ball: state.ball,
     );
 
     if (!canMove) {
@@ -160,6 +161,7 @@ class GameBloc extends Bloc<GameEvent, GameState> {
       sr: t.r,
       steps: state.dice!,
       isBall: false,
+      ball: state.ball,
     );
 
     // ── DEBUG TRACE ──

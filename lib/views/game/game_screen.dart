@@ -13,6 +13,7 @@ import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/responsive.dart';
 import 'package:mini_kickers/views/game/widget/board_widget.dart';
 import 'package:mini_kickers/views/game/widget/coin_toss_widget.dart';
+import 'package:mini_kickers/views/game/widget/commentary_toast.dart';
 import 'package:mini_kickers/views/game/widget/first_goal_ad_overlay.dart';
 import 'package:mini_kickers/views/game/widget/game_over_widget.dart';
 import 'package:mini_kickers/views/game/widget/goal_flash_widget.dart';
@@ -91,6 +92,11 @@ class _GameScreenState extends State<GameScreen> {
                   if (state.showGoalFlash) const GoalFlashWidget(),
                   const GameOverHost(),
                   const CoinTossHost(),
+                  // Commentary toast — anchored to the screen's top-right
+                  // corner (NOT the board) so it never overlaps tokens or
+                  // the ball when they're in the bottom rows. The toast
+                  // handles its own safe-area + positioning internally.
+                  const CommentaryToast(),
                   // Debug-only readout (compiled out of release).
                   const MoveDebugOverlay(),
                   if (_showGoalAd)
