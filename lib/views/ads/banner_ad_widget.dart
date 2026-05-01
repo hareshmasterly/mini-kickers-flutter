@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/utils/ad_manager.dart';
 
 // Re-export AdPlacement so screens that include this widget can pass the
@@ -42,6 +43,20 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
 
   Future<void> _loadAd() async {
     _loading = true;
+    // Hard gate: NEVER hit AdMob when the master `show_ads` switch is
+    // off — even though parent screens already condition on this flag
+    // before mounting BannerAdWidget, having the check here guarantees
+    // a single point of truth (and protects against any future caller
+    // that forgets the parent gate).
+    if (!SettingsService.instance.showAds) {
+      _loading = false;
+      if (kDebugMode) {
+        debugPrint(
+          'BannerAd[${widget.placement.name}]: skipped — show_ads=false',
+        );
+      }
+      return;
+    }
     // Block until the SDK is initialised. Without this guard,
     // `BannerAd.load()` runs against an un-booted SDK on first launch
     // and fails silently — widget stays as `SizedBox.shrink` forever.

@@ -10,7 +10,6 @@ import 'package:mini_kickers/theme/team_colors.dart';
 import 'package:mini_kickers/views/game/widget/animated_highlight.dart';
 import 'package:mini_kickers/views/game/widget/animated_token.dart';
 import 'package:mini_kickers/views/game/widget/ball_3d.dart';
-import 'package:mini_kickers/views/game/widget/commentary_toast.dart';
 
 class BoardWidget extends StatelessWidget {
   const BoardWidget({super.key});
@@ -66,7 +65,10 @@ class BoardWidget extends StatelessWidget {
                       ..._buildHighlights(context, state, cell),
                       ..._buildTokens(context, state, cell),
                       Ball3D(ball: state.ball, cell: cell),
-                      const CommentaryToast(),
+                      // CommentaryToast moved out of the board to the
+                      // screen-level Stack in GameScreen — it now lives
+                      // at the top-right corner of the screen so it
+                      // never overlaps the pitch / tokens / ball.
                     ],
                   ),
                 ),

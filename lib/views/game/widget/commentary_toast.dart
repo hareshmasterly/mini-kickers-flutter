@@ -82,38 +82,66 @@ class _CommentaryToastState extends State<CommentaryToast>
         final bool ballAlert = state.phase == GamePhase.moveBall;
         _showMessage(state.message, ballAlert: ballAlert);
       },
-      child: AnimatedBuilder(
-        animation: _ctrl,
-        builder: (final BuildContext context, final Widget? child) {
-          if (_currentMessage == null) return const SizedBox.shrink();
-          final double t = _ctrl.value.clamp(0.0, 1.0);
-          final double ease = Curves.easeOutCubic.transform(t);
-          final bool compact = Responsive.isCompact(context);
-          final bool wide = Responsive.isWide(context);
-          // Inset from board edges. Smaller on phones (every pixel
-          // matters in landscape), larger on tablets (more breathing
-          // room around the bar).
-          final double inset = compact ? 6 : (wide ? 14 : 10);
-          // Slide-up distance scales with screen size so the motion
-          // feels proportional, not jarring on large displays.
-          final double riseDistance = compact ? 12 : (wide ? 22 : 16);
-          return Positioned(
-            left: inset,
-            right: inset,
-            bottom: inset,
-            child: Opacity(
-              opacity: ease,
-              child: Transform.translate(
-                offset: Offset(0, riseDistance * (1 - ease)),
-                child: child,
+      // Anchored to the screen's top-right corner (NOT the board) so it
+      // never overlaps the pitch / tokens / ball — even when the ball is
+      // in the bottom rows. Lives as a screen-level overlay in
+      // GameScreen, so we wrap with Positioned.fill + SafeArea + Align
+      // to get a notch-safe top-right anchor, and IgnorePointer so taps
+      // pass through to whatever's underneath the bubble (the toast is
+      // passive — users don't interact with it).
+      child: Positioned.fill(
+        child: IgnorePointer(
+          child: SafeArea(
+            child: Align(
+              alignment: Alignment.topRight,
+              child: AnimatedBuilder(
+                animation: _ctrl,
+                builder: (final BuildContext context, final Widget? child) {
+                  if (_currentMessage == null) {
+                    return const SizedBox.shrink();
+                  }
+                  final double t = _ctrl.value.clamp(0.0, 1.0);
+                  final double ease = Curves.easeOutCubic.transform(t);
+                  final bool compact = Responsive.isCompact(context);
+                  final bool wide = Responsive.isWide(context);
+                  // Inset from screen edges. Smaller on phones (every
+                  // pixel matters in landscape), larger on tablets.
+                  final double inset = compact ? 8 : (wide ? 16 : 12);
+                  // Slide-down distance from above. Direction matches
+                  // the new top-right anchor — used to slide up from
+                  // the bottom.
+                  final double dropDistance =
+                      compact ? 12 : (wide ? 22 : 16);
+                  // Cap the bubble width so it doesn't span the whole
+                  // top of the screen — keeps the upper-right corner
+                  // readable without covering the rest of the screen.
+                  final double maxWidth =
+                      compact ? 220 : (wide ? 360 : 280);
+                  return Padding(
+                    padding: EdgeInsets.all(inset),
+                    child: Opacity(
+                      opacity: ease,
+                      child: Transform.translate(
+                        offset: Offset(0, -dropDistance * (1 - ease)),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: maxWidth),
+                          child: child,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                child: _ToastBubble(
+                  message: _currentMessage ?? '',
+                  icon: _iconFor(
+                    _currentMessage ?? '',
+                    ballAlert: _isBallAlert,
+                  ),
+                  isBallAlert: _isBallAlert,
+                ),
               ),
             ),
-          );
-        },
-        child: _ToastBubble(
-          message: _currentMessage ?? '',
-          icon: _iconFor(_currentMessage ?? '', ballAlert: _isBallAlert),
-          isBallAlert: _isBallAlert,
+          ),
         ),
       ),
     );

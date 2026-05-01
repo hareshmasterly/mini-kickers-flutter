@@ -8,6 +8,7 @@ import 'package:mini_kickers/bloc/game/game_bloc.dart';
 import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/team_colors.dart';
+import 'package:mini_kickers/utils/responsive.dart';
 import 'package:mini_kickers/utils/ad_manager.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/views/game/widget/confetti_overlay.dart';
@@ -104,31 +105,41 @@ class _GameOverWidgetState extends State<GameOverWidget>
 
   Widget _buildCard(final Color winnerColor, final String winnerLabel, final bool draw) {
     final Size screen = MediaQuery.of(context).size;
-    // Three tiers — see [_CoinTossWidget] for the same scheme.
-    // `shortestSide ≥ 600` rules out wide-but-short landscape phones
-    // (e.g. Pixel 6 at 915×412) which would otherwise overflow.
-    final bool compact = screen.height < 400;
+    // Three tiers — kept consistent with [Responsive.isCompact] used by
+    // the rest of the app (520 px height threshold). The previous
+    // `< 400` cutoff missed every landscape phone (Pixel 6 at 915×412,
+    // iPhone SE at 667×375, etc.) and the regular-tier paddings
+    // overflowed those screens by ~160 px.
+    final bool compact = Responsive.isCompact(context);
     final bool isTablet = !compact && screen.shortestSide >= 600;
 
     final double maxWidth = isTablet ? 620 : 460;
     final EdgeInsets cardPad = compact
-        ? const EdgeInsets.fromLTRB(20, 20, 20, 16)
+        ? const EdgeInsets.fromLTRB(20, 14, 20, 12)
         : isTablet
             ? const EdgeInsets.fromLTRB(40, 44, 40, 32)
             : const EdgeInsets.fromLTRB(28, 32, 28, 24);
 
-    final double trophySize = compact ? 60 : (isTablet ? 128 : 96);
-    final double fullTimeFont = compact ? 14 : (isTablet ? 26 : 20);
-    final double winnerFont = compact ? 28 : (isTablet ? 60 : 44);
-    final double gapAfterTrophy = compact ? 6 : (isTablet ? 18 : 14);
+    final double trophySize = compact ? 48 : (isTablet ? 128 : 96);
+    final double fullTimeFont = compact ? 12 : (isTablet ? 26 : 20);
+    final double winnerFont = compact ? 24 : (isTablet ? 60 : 44);
+    final double gapAfterTrophy = compact ? 4 : (isTablet ? 18 : 14);
     final double gapAfterFullTime = compact ? 2 : (isTablet ? 6 : 4);
-    final double gapBeforeScore = compact ? 12 : (isTablet ? 30 : 24);
-    final double gapBeforePlay = compact ? 14 : (isTablet ? 36 : 28);
-    final double gapBeforeHome = compact ? 4 : (isTablet ? 14 : 10);
+    final double gapBeforeScore = compact ? 8 : (isTablet ? 30 : 24);
+    final double gapBeforePlay = compact ? 10 : (isTablet ? 36 : 28);
+    final double gapBeforeHome = compact ? 2 : (isTablet ? 14 : 10);
+
+    // The card itself never exceeds the screen height — wrap its
+    // contents in a SingleChildScrollView as a belt-and-braces guard
+    // against any future small-device edge case (e.g. split-screen,
+    // foldable in flex mode, accessibility text scale > 1.0). With the
+    // tighter compact tier above the scroll bar should never appear in
+    // practice.
+    final double maxCardHeight = screen.height - 24;
 
     return Container(
-      constraints: BoxConstraints(maxWidth: maxWidth),
-      margin: const EdgeInsets.symmetric(horizontal: 24),
+      constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: maxCardHeight),
+      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       padding: cardPad,
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -154,85 +165,88 @@ class _GameOverWidgetState extends State<GameOverWidget>
           ),
         ],
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          _AnimatedTrophy(
-            controller: _trophyShine,
-            color: winnerColor,
-            draw: draw,
-            size: trophySize,
-          ),
-          SizedBox(height: gapAfterTrophy),
-          Text(
-            'FULL TIME',
-            style: AppFonts.bebasNeue(
-              fontSize: fullTimeFont,
-              letterSpacing: 6,
-              color: Colors.white.withValues(alpha: 0.8),
+      child: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            _AnimatedTrophy(
+              controller: _trophyShine,
+              color: winnerColor,
+              draw: draw,
+              size: trophySize,
             ),
-          ),
-          SizedBox(height: gapAfterFullTime),
-          ShaderMask(
-            shaderCallback: (final Rect bounds) {
-              return LinearGradient(
-                colors: <Color>[
-                  AppColors.goldDeep,
-                  AppColors.goldShine,
-                  AppColors.goldDeep,
-                ],
-              ).createShader(bounds);
-            },
-            child: Text(
-              winnerLabel,
+            SizedBox(height: gapAfterTrophy),
+            Text(
+              'FULL TIME',
               style: AppFonts.bebasNeue(
-                fontSize: winnerFont,
-                letterSpacing: 3,
-                color: Colors.white,
-                shadows: <Shadow>[
-                  Shadow(color: winnerColor.withValues(alpha: 0.7), blurRadius: 24),
-                ],
+                fontSize: fullTimeFont,
+                letterSpacing: 6,
+                color: Colors.white.withValues(alpha: 0.8),
               ),
             ),
-          ),
-          SizedBox(height: gapBeforeScore),
-          _ScoreRow(
-            redScore: widget.redScore,
-            blueScore: widget.blueScore,
-            compact: compact,
-            isTablet: isTablet,
-          ),
-          SizedBox(height: gapBeforePlay),
-          _PlayAgainButton(
-            onTap: () {
-              AudioHelper.select();
-              widget.onPlayAgain();
-            },
-            compact: compact,
-            isTablet: isTablet,
-          ),
-          SizedBox(height: gapBeforeHome),
-          TextButton.icon(
-            onPressed: () {
-              AudioHelper.select();
-              widget.onHome();
-            },
-            icon: Icon(
-              Icons.home_rounded,
-              color: Colors.white70,
-              size: isTablet ? 24 : 18,
+            SizedBox(height: gapAfterFullTime),
+            ShaderMask(
+              shaderCallback: (final Rect bounds) {
+                return LinearGradient(
+                  colors: <Color>[
+                    AppColors.goldDeep,
+                    AppColors.goldShine,
+                    AppColors.goldDeep,
+                  ],
+                ).createShader(bounds);
+              },
+              child: Text(
+                winnerLabel,
+                style: AppFonts.bebasNeue(
+                  fontSize: winnerFont,
+                  letterSpacing: 3,
+                  color: Colors.white,
+                  shadows: <Shadow>[
+                    Shadow(color: winnerColor.withValues(alpha: 0.7), blurRadius: 24),
+                  ],
+                ),
+              ),
             ),
-            label: Text(
-              'HOME',
-              style: TextStyle(
+            SizedBox(height: gapBeforeScore),
+            _ScoreRow(
+              redScore: widget.redScore,
+              blueScore: widget.blueScore,
+              compact: compact,
+              isTablet: isTablet,
+            ),
+            SizedBox(height: gapBeforePlay),
+            _PlayAgainButton(
+              onTap: () {
+                AudioHelper.select();
+                widget.onPlayAgain();
+              },
+              compact: compact,
+              isTablet: isTablet,
+            ),
+            SizedBox(height: gapBeforeHome),
+            TextButton.icon(
+              onPressed: () {
+                AudioHelper.select();
+                widget.onHome();
+              },
+              icon: Icon(
+                Icons.home_rounded,
                 color: Colors.white70,
-                letterSpacing: 2,
-                fontWeight: FontWeight.w700,
-                fontSize: isTablet ? 16 : 13,
+                size: isTablet ? 24 : 18,
+              ),
+              label: Text(
+                'HOME',
+                style: TextStyle(
+                  color: Colors.white70,
+                  letterSpacing: 2,
+                  fontWeight: FontWeight.w700,
+                  fontSize: isTablet ? 16 : 13,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

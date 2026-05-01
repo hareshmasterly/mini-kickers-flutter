@@ -9,8 +9,11 @@ import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/routes/routes_name.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
+import 'package:mini_kickers/data/services/app_update_service.dart';
+import 'package:mini_kickers/utils/analytics_helper.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/responsive.dart';
+import 'package:mini_kickers/views/home/widget/update_dialog.dart';
 import 'package:mini_kickers/views/game/game_screen.dart';
 import 'package:mini_kickers/views/home/widget/animated_title.dart';
 import 'package:mini_kickers/views/home/widget/buy_amazon_button.dart';
@@ -45,6 +48,26 @@ class _HomeScreenState extends State<HomeScreen>
         AudioHelper.startMusic();
       }
     });
+
+    // Analytics — fires once per home-screen mount (returning to home
+    // from a game also re-fires, which is what we want for measuring
+    // session-level engagement).
+    Analytics.logHomeOpened();
+
+    // Check for an app-update prompt. Done after a brief delay so the
+    // home screen has time to render its entry animation before the
+    // dialog covers it. The check is best-effort and silently no-ops
+    // on any failure (network down, doc missing, etc.) so it can
+    // never block the user from playing.
+    WidgetsBinding.instance.addPostFrameCallback((final _) {
+      Future<void>.delayed(const Duration(milliseconds: 600), () async {
+        if (!mounted) return;
+        final UpdateCheckResult result =
+            await AppUpdateService.instance.check();
+        if (!mounted || !result.shouldShow) return;
+        await showUpdateDialog(context, result: result);
+      });
+    });
   }
 
   @override
@@ -54,6 +77,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onPlay() {
+    Analytics.logGameStarted();
     // Default "PLAY" entry point — local two-player. Make sure mode is
     // reset to vsHuman in case the user previously played a VS AI match
     // and bailed without going through the AI flow's cleanup.

@@ -92,11 +92,8 @@ class SettingsService extends ChangeNotifier {
 
   // ── Getters: audio / haptics (no remote layer) ────────────────────────
   bool get soundEnabled => _soundEnabled;
-
   bool get musicEnabled => _musicEnabled;
-
   bool get hapticsEnabled => _hapticsEnabled;
-
   bool get commentaryEnabled => _commentaryEnabled;
 
   // ── Getters: layered (override → remote → fallback) ───────────────────
@@ -184,22 +181,22 @@ class SettingsService extends ChangeNotifier {
   /// interstitials) are suppressed. The in-house Amazon-promo overlay
   /// shown after goals is **not** gated by this flag — it's owned media,
   /// not a paid ad.
-  bool get showAds => _remote?.showAds ?? true;
+  bool get showAds => _remote?.showAds ?? false;
 
-  bool get showGuideBanner => _remote?.showGuideBanner ?? true;
+  bool get showGuideBanner => _remote?.showGuideBanner ?? false;
 
-  bool get showSettingsBanner => _remote?.showSettingsBanner ?? true;
+  bool get showSettingsBanner => _remote?.showSettingsBanner ?? false;
 
-  bool get showInterstitialOnGoal => _remote?.showInterstitialOnGoal ?? true;
+  bool get showInterstitialOnGoal => _remote?.showInterstitialOnGoal ?? false;
 
   bool get showInterstitialOnPlayAgain =>
-      _remote?.showInterstitialOnPlayAgain ?? true;
+      _remote?.showInterstitialOnPlayAgain ?? false;
 
   bool get showInterstitialOnRestartGame =>
-      _remote?.showInterstitialOnRestartGame ?? true;
+      _remote?.showInterstitialOnRestartGame ?? false;
 
   bool get showInterstitialOnScreenNavigation =>
-      _remote?.showInterstitialOnScreenNavigation ?? true;
+      _remote?.showInterstitialOnScreenNavigation ?? false;
 
   /// Every Nth goal swaps the house Amazon promo for a paid interstitial.
   /// Clamped to ≥ 1 so a misconfigured `0` doesn't fire on every goal.
@@ -212,6 +209,23 @@ class SettingsService extends ChangeNotifier {
   int get interstitialEveryNthNavPush {
     final int n = _remote?.interstitialEveryNthNavPush ?? 5;
     return n < 1 ? 1 : n;
+  }
+
+  // ── Amazon promo overlay (in-house, separate from paid AdMob) ────────
+
+  /// Master switch for the "Buy on Amazon" overlay shown after goals
+  /// that aren't consumed by a paid interstitial. Defaults to `false`
+  /// so first-launch users never see the overlay before remote config
+  /// arrives — flip on in Firestore when ready.
+  bool get showAmazonAdOverlay => _remote?.showAmazonAdOverlay ?? false;
+
+  /// How long the Amazon overlay stays visible before it auto-dismisses.
+  /// Clamped to a sane range (3–60 s) so a misconfigured `0` doesn't
+  /// flash-and-vanish and a runaway `9999` doesn't trap the user.
+  Duration get amazonAdDuration {
+    final int n = _remote?.amazonAdDurationSeconds ?? 10;
+    final int clamped = n.clamp(3, 60);
+    return Duration(seconds: clamped);
   }
 
   /// Available palettes: remote list if non-empty, otherwise the
