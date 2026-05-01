@@ -7,8 +7,16 @@ import 'package:flutter/foundation.dart';
 ///   • Event names live in one place (consistent naming, easy to audit
 ///     when configuring Firebase / GA4 conversions and dashboards).
 ///   • Failures are swallowed — analytics MUST NEVER crash gameplay.
-///   • Debug builds also `debugPrint` what was sent, so you can verify
-///     events without opening DebugView.
+///   • **Debug builds DO NOT register events with Firebase** — dev
+///     sessions must never pollute production analytics. Instead we
+///     `debugPrint` what WOULD have been sent so you can verify wiring
+///     locally without polluting GA4.
+///
+/// SDK-level collection is also disabled in debug via
+/// `FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(...)` in
+/// [main.dart] — so even if a future caller bypasses this helper and
+/// calls `FirebaseAnalytics.instance.logEvent` directly, the event
+/// still won't leave the device in a debug build.
 ///
 /// Naming convention: `<noun>_<verb>` in snake_case (Firebase requires
 /// snake_case + 40-char max). Use [Analytics.logXxx] from call sites.
@@ -21,16 +29,24 @@ class Analytics {
     final String name, {
     final Map<String, Object>? params,
   }) async {
+    // Hard gate: in debug builds we NEVER actually call Firebase. We
+    // still print to console so you can verify the wiring while
+    // developing — it just doesn't get registered against the GA4
+    // property. This keeps your prod analytics clean.
+    if (kDebugMode) {
+      debugPrint(
+        'Analytics (debug — not sent): $name'
+        '${params == null ? '' : ' $params'}',
+      );
+      return;
+    }
     try {
       await _analytics.logEvent(name: name, parameters: params);
-      if (kDebugMode) {
-        debugPrint('Analytics: $name${params == null ? '' : ' $params'}');
-      }
-    } catch (e) {
-      // Never let analytics failures break the app — swallow and
-      // log only. Common causes: Firebase not initialised yet, no
-      // network, App Check failing.
-      if (kDebugMode) debugPrint('Analytics failed ($name): $e');
+    } catch (_) {
+      // Never let analytics failures break the app. Crashlytics
+      // (release-only) catches any uncaught errors elsewhere; here we
+      // intentionally swallow because losing a single event is
+      // acceptable, crashing on it is not.
     }
   }
 

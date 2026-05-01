@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/utils/amazon_launcher.dart';
@@ -33,7 +34,12 @@ class FirstGoalAdOverlay extends StatefulWidget {
 
 class _FirstGoalAdOverlayState extends State<FirstGoalAdOverlay>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-  static const Duration _autoCloseAfter = Duration(seconds: 10);
+  /// Auto-close duration — pulled from remote `app_settings`
+  /// (`amazon_ad_duration_second`) at mount time. Captured into a
+  /// late final so the same value drives the AnimationController, the
+  /// progress bar, and the "Closes in Ns" label without re-reading
+  /// the service mid-frame.
+  late final Duration _autoCloseAfter;
 
   late final AnimationController _entry;
   late final AnimationController _ambient;
@@ -50,6 +56,9 @@ class _FirstGoalAdOverlayState extends State<FirstGoalAdOverlay>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Snapshot the remote duration once. SettingsService clamps it
+    // to 3–60s so we always get a sane value here.
+    _autoCloseAfter = SettingsService.instance.amazonAdDuration;
     _entry = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
@@ -58,9 +67,9 @@ class _FirstGoalAdOverlayState extends State<FirstGoalAdOverlay>
       vsync: this,
       duration: const Duration(seconds: 12),
     )..repeat();
-    // 10-second auto-dismiss timer. Drives both the top progress bar
-    // and the "Closes in Ns" label. Stopped (not reset) when the user
-    // taps BUY so they can return from Amazon and still manually close.
+    // Auto-dismiss timer. Drives both the top progress bar and the
+    // "Closes in Ns" label. Stopped (not reset) when the user taps BUY
+    // so they can return from Amazon and still manually close.
     _countdown = AnimationController(vsync: this, duration: _autoCloseAfter)
       ..forward()
       ..addStatusListener((final AnimationStatus s) {

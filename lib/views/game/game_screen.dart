@@ -73,12 +73,15 @@ class _GameScreenState extends State<GameScreen> {
               }
               // Goal flash just ended.
               //   • Nth goal (when goal slot enabled) → paid interstitial
-              //   • Otherwise                         → Amazon promo overlay
+              //   • Otherwise (and Amazon overlay enabled) → house promo
+              //   • Otherwise still → no overlay at all
               // Cadence + toggles come from remote `app_settings`; see
-              // [AdManager.shouldShowGoalInterstitial].
+              // [AdManager.shouldShowGoalInterstitial] and
+              // [SettingsService.showAmazonAdOverlay].
               if (AdManager.instance.shouldShowGoalInterstitial()) {
                 AdManager.instance.showGoalInterstitial();
-              } else if (!_showGoalAd) {
+              } else if (SettingsService.instance.showAmazonAdOverlay &&
+                  !_showGoalAd) {
                 setState(() => _showGoalAd = true);
               }
             },

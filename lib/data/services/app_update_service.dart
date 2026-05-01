@@ -26,8 +26,11 @@ class UpdateCheckResult {
   final String storeUrl;
 
   /// Convenience: when no popup is needed.
-  static const UpdateCheckResult none =
-      UpdateCheckResult(shouldShow: false, settings: null, storeUrl: '');
+  static const UpdateCheckResult none = UpdateCheckResult(
+    shouldShow: false,
+    settings: null,
+    storeUrl: '',
+  );
 }
 
 /// Fetches the `app_update_settings` doc from Firestore on demand and
@@ -74,6 +77,7 @@ class AppUpdateService {
       //    `version: 1.0.0+N` exposes "1.0.0" here).
       final PackageInfo info = await PackageInfo.fromPlatform();
       final String currentVersion = info.version;
+      debugPrint('currentVersion--> $currentVersion');
 
       // 2. Fetch the (single) update-settings doc. We use limit(1)
       //    rather than a fixed doc id so the editor can keep using
@@ -85,8 +89,9 @@ class AppUpdateService {
           .get();
       if (snap.docs.isEmpty) return UpdateCheckResult.none;
 
-      final RemoteAppUpdateSettings settings =
-          RemoteAppUpdateSettings.fromMap(snap.docs.first.data());
+      final RemoteAppUpdateSettings settings = RemoteAppUpdateSettings.fromMap(
+        snap.docs.first.data(),
+      );
 
       // 3. Platform master switch.
       final bool platformEnabled = Platform.isIOS
@@ -111,8 +116,9 @@ class AppUpdateService {
       }
 
       // 6. Resolve the store URL we want the "Update" button to launch.
-      final String storeUrl =
-          Platform.isIOS ? settings.appStoreLink : settings.playStoreLink;
+      final String storeUrl = Platform.isIOS
+          ? settings.appStoreLink
+          : settings.playStoreLink;
       if (storeUrl.isEmpty) {
         // Editor enabled the popup but didn't fill in a store link —
         // pointless to show a popup with a broken button.

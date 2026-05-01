@@ -183,6 +183,23 @@ class SettingsService extends ChangeNotifier {
     return n < 1 ? 1 : n;
   }
 
+  // ── Amazon promo overlay (in-house, separate from paid AdMob) ────────
+
+  /// Master switch for the "Buy on Amazon" overlay shown after goals
+  /// that aren't consumed by a paid interstitial. Defaults to `false`
+  /// so first-launch users never see the overlay before remote config
+  /// arrives — flip on in Firestore when ready.
+  bool get showAmazonAdOverlay => _remote?.showAmazonAdOverlay ?? false;
+
+  /// How long the Amazon overlay stays visible before it auto-dismisses.
+  /// Clamped to a sane range (3–60 s) so a misconfigured `0` doesn't
+  /// flash-and-vanish and a runaway `9999` doesn't trap the user.
+  Duration get amazonAdDuration {
+    final int n = _remote?.amazonAdDurationSeconds ?? 10;
+    final int clamped = n.clamp(3, 60);
+    return Duration(seconds: clamped);
+  }
+
   /// Available palettes: remote list if non-empty, otherwise the
   /// hardcoded set. Consumers (e.g. PalettePicker) should iterate this
   /// rather than [TeamPalettes.all] directly.

@@ -8,6 +8,7 @@ import 'package:mini_kickers/data/services/app_update_service.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
+import 'package:mini_kickers/utils/responsive.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Beautiful, modern in-app update prompt.
@@ -108,25 +109,51 @@ class _UpdateDialogState extends State<_UpdateDialog>
   Widget build(final BuildContext context) {
     final RemoteAppUpdateSettings s = widget.settings;
     final bool isForce = s.isForceUpdateEnable;
-    final bool isTablet =
-        MediaQuery.of(context).size.shortestSide >= 600;
+    final Size screen = MediaQuery.of(context).size;
+    // Three tiers — compact (landscape phones h<520) needs much
+    // smaller paddings + icon than the previous "phone vs tablet"
+    // split, otherwise the card overflows the viewport (the bug we
+    // just fixed in game_over_widget had the exact same root cause).
+    final bool compact = Responsive.isCompact(context);
+    final bool isTablet = !compact && screen.shortestSide >= 600;
 
-    final double maxWidth = isTablet ? 560 : 420;
-    final EdgeInsets cardPad = isTablet
-        ? const EdgeInsets.fromLTRB(36, 36, 36, 28)
-        : const EdgeInsets.fromLTRB(26, 28, 26, 22);
-    final double iconBoxSize = isTablet ? 96 : 72;
-    final double titleFont = isTablet ? 36 : 28;
-    final double messageFont = isTablet ? 15 : 13;
-    final double btnVPad = isTablet ? 16 : 13;
-    final double primaryBtnFont = isTablet ? 17 : 14;
-    final double cancelBtnFont = isTablet ? 14 : 12;
+    final double maxWidth = isTablet ? 560 : (compact ? 380 : 420);
+    final EdgeInsets cardPad = compact
+        ? const EdgeInsets.fromLTRB(20, 14, 20, 14)
+        : isTablet
+            ? const EdgeInsets.fromLTRB(36, 36, 36, 28)
+            : const EdgeInsets.fromLTRB(26, 28, 26, 22);
+    final double iconBoxSize = compact ? 44 : (isTablet ? 96 : 72);
+    final double titleFont = compact ? 22 : (isTablet ? 36 : 28);
+    final double messageFont = compact ? 11 : (isTablet ? 15 : 13);
+    final double btnVPad = compact ? 10 : (isTablet ? 16 : 13);
+    final double primaryBtnFont = compact ? 13 : (isTablet ? 17 : 14);
+    final double cancelBtnFont = compact ? 11 : (isTablet ? 14 : 12);
+    // Inter-element spacing also shrinks in compact so we don't burn
+    // vertical space between sections of the card.
+    final double gapAfterIcon = compact ? 10 : 18;
+    final double gapAfterTitle = compact ? 6 : 10;
+    final double gapBeforeBadge = compact ? 8 : 14;
+    final double gapBeforePrimary = compact ? 12 : 22;
+    final double gapBeforeCancel = compact ? 6 : 10;
+    // Cap the card so its content can NEVER outgrow the viewport.
+    // SingleChildScrollView (added below) makes any leftover content
+    // scrollable rather than overflowing into a yellow-stripe error.
+    final double maxCardHeight = screen.height - 24;
 
     return PopScope<dynamic>(
       // Force-update: block Android back / iOS swipe-back so the user
       // cannot dismiss the dialog without going to the store.
       canPop: !isForce,
-      child: AnimatedBuilder(
+      // Material(type: transparency) provides the Material ancestor that
+      // Text widgets need to inherit a proper DefaultTextStyle. Without
+      // this wrapper, every Text in the dialog gets Flutter's yellow
+      // double-underline debug indicator (the "no Material ancestor"
+      // warning). Other dialogs in the app avoid this because they use
+      // the `Dialog` widget — we don't, so we wrap manually here.
+      child: Material(
+        type: MaterialType.transparency,
+        child: AnimatedBuilder(
         animation: _entry,
         builder: (final BuildContext context, final Widget? child) {
           final double t = Curves.easeOutCubic.transform(_entry.value);
@@ -145,9 +172,12 @@ class _UpdateDialogState extends State<_UpdateDialog>
         },
         child: Center(
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxWidth),
+            constraints: BoxConstraints(
+              maxWidth: maxWidth,
+              maxHeight: maxCardHeight,
+            ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(24),
                 child: BackdropFilter(
@@ -182,88 +212,97 @@ class _UpdateDialogState extends State<_UpdateDialog>
                         ),
                       ],
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        _GlowingIcon(
-                          shimmer: _shimmer,
-                          orbit: _orbit,
-                          size: iconBoxSize,
-                          isForce: isForce,
-                        ),
-                        const SizedBox(height: 18),
-                        ShaderMask(
-                          shaderCallback: (final Rect bounds) =>
-                              const LinearGradient(
-                            colors: <Color>[
-                              AppColors.goldDeep,
-                              AppColors.goldShine,
-                              AppColors.goldDeep,
-                            ],
-                          ).createShader(bounds),
-                          child: Text(
-                            s.title.toUpperCase(),
-                            textAlign: TextAlign.center,
-                            style: AppFonts.bebasNeue(
-                              fontSize: titleFont,
-                              color: Colors.white,
-                              letterSpacing: 1.6,
-                              shadows: <Shadow>[
-                                Shadow(
-                                  color: AppColors.brandYellow.withValues(
-                                    alpha: 0.55,
-                                  ),
-                                  blurRadius: 22,
-                                ),
+                    // SingleChildScrollView is the safety net: if the
+                    // device is so cramped that even compact-tier
+                    // sizing overflows (rare — landscape phones with
+                    // accessibility text scaling, foldables in flex
+                    // mode), the user can scroll the card content
+                    // instead of seeing a yellow-stripe error.
+                    child: SingleChildScrollView(
+                      physics: const ClampingScrollPhysics(),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          _GlowingIcon(
+                            shimmer: _shimmer,
+                            orbit: _orbit,
+                            size: iconBoxSize,
+                            isForce: isForce,
+                          ),
+                          SizedBox(height: gapAfterIcon),
+                          ShaderMask(
+                            shaderCallback: (final Rect bounds) =>
+                                const LinearGradient(
+                              colors: <Color>[
+                                AppColors.goldDeep,
+                                AppColors.goldShine,
+                                AppColors.goldDeep,
                               ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          s.message,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            fontSize: messageFont,
-                            height: 1.45,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                        if (isForce) ...<Widget>[
-                          const SizedBox(height: 14),
-                          _ForceBadge(),
-                        ],
-                        const SizedBox(height: 22),
-                        _PrimaryButton(
-                          label: s.okBtnText,
-                          fontSize: primaryBtnFont,
-                          vPad: btnVPad,
-                          onPressed: _onUpdate,
-                        ),
-                        if (!isForce) ...<Widget>[
-                          const SizedBox(height: 10),
-                          TextButton(
-                            onPressed: _onMaybeLater,
-                            style: TextButton.styleFrom(
-                              foregroundColor:
-                                  Colors.white.withValues(alpha: 0.7),
-                              padding: EdgeInsets.symmetric(
-                                vertical: btnVPad - 2,
-                                horizontal: 22,
-                              ),
-                            ),
+                            ).createShader(bounds),
                             child: Text(
-                              s.cancelBtnText.toUpperCase(),
-                              style: TextStyle(
-                                fontSize: cancelBtnFont,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1.4,
+                              s.title.toUpperCase(),
+                              textAlign: TextAlign.center,
+                              style: AppFonts.bebasNeue(
+                                fontSize: titleFont,
+                                color: Colors.white,
+                                letterSpacing: 1.6,
+                                shadows: <Shadow>[
+                                  Shadow(
+                                    color: AppColors.brandYellow.withValues(
+                                      alpha: 0.55,
+                                    ),
+                                    blurRadius: 22,
+                                  ),
+                                ],
                               ),
                             ),
                           ),
+                          SizedBox(height: gapAfterTitle),
+                          Text(
+                            s.message,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.8),
+                              fontSize: messageFont,
+                              height: 1.45,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          if (isForce) ...<Widget>[
+                            SizedBox(height: gapBeforeBadge),
+                            _ForceBadge(),
+                          ],
+                          SizedBox(height: gapBeforePrimary),
+                          _PrimaryButton(
+                            label: s.okBtnText,
+                            fontSize: primaryBtnFont,
+                            vPad: btnVPad,
+                            onPressed: _onUpdate,
+                          ),
+                          if (!isForce) ...<Widget>[
+                            SizedBox(height: gapBeforeCancel),
+                            TextButton(
+                              onPressed: _onMaybeLater,
+                              style: TextButton.styleFrom(
+                                foregroundColor:
+                                    Colors.white.withValues(alpha: 0.7),
+                                padding: EdgeInsets.symmetric(
+                                  vertical: btnVPad - 2,
+                                  horizontal: 22,
+                                ),
+                              ),
+                              child: Text(
+                                s.cancelBtnText.toUpperCase(),
+                                style: TextStyle(
+                                  fontSize: cancelBtnFont,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.4,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -271,6 +310,7 @@ class _UpdateDialogState extends State<_UpdateDialog>
             ),
           ),
         ),
+      ),
       ),
     );
   }
