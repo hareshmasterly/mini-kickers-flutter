@@ -1,0 +1,34 @@
+rules_version = '2';
+
+// Mini Kickers — Firestore security rules.
+//
+// The app is currently anonymous (no Firebase Auth). All content is
+// editor-curated and read by every player, so we expose two read-only
+// collections and deny everything else by default.
+//
+// Deploy from the Firebase Console (Firestore → Rules → paste this file
+// and Publish), or with the CLI:
+//   firebase deploy --only firestore:rules
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // App-wide defaults: match duration, team names, palette list.
+    // Read by every client on launch; writes are made from the console only.
+    match /app_settings/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // FAQs shown on the Guide screen. One document per FAQ.
+    match /faqs/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Default deny — any future collection must add its own rule above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

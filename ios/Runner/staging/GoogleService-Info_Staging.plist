@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyCCEwqszD1Gp4kyblUMn3SptXMHXZGgv6M</string>
+	<key>GCM_SENDER_ID</key>
+	<string>649722549015</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.masterly.minikickers</string>
+	<key>PROJECT_ID</key>
+	<string>mini-kickers-7b71c</string>
+	<key>STORAGE_BUCKET</key>
+	<string>mini-kickers-7b71c.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:649722549015:ios:102fcb0e0d15cda81d1d52</string>
+</dict>
+</plist>
