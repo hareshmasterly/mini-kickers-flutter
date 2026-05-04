@@ -87,6 +87,12 @@ class BoardWidget extends StatelessWidget {
     final double cell,
   ) {
     final List<Widget> out = <Widget>[];
+    // In online mode, the inactive client mirrors the active player's
+    // highlights via remote sync — we render them so the spectator UX
+    // matches what the opponent is doing, but taps must be inert (the
+    // bloc would reject them anyway, but suppressing here avoids the
+    // tap feedback on a no-op).
+    final bool isOnlineOpponentTurn = state.isWaitingForOpponent;
     for (int i = 0; i < state.highlights.length; i++) {
       final Pos p = state.highlights[i];
       out.add(
@@ -97,9 +103,11 @@ class BoardWidget extends StatelessWidget {
           height: cell,
           child: AnimatedHighlight(
             indexDelay: i,
-            onTap: () => context
-                .read<GameBloc>()
-                .add(GameEvent.moveTo(c: p.c, r: p.r)),
+            onTap: isOnlineOpponentTurn
+                ? null
+                : () => context
+                    .read<GameBloc>()
+                    .add(GameEvent.moveTo(c: p.c, r: p.r)),
           ),
         ),
       );
@@ -118,6 +126,12 @@ class BoardWidget extends StatelessWidget {
     final bool isAiTurn =
         SettingsService.instance.gameMode == GameMode.vsAi &&
             state.turn == Team.blue;
+    // True when we're in online mode and it's the OPPONENT's turn.
+    // Suppress all token taps so the inactive player can't desync the
+    // selected/highlight state. The bloc would reject these events
+    // anyway, but disabling the UI prevents the audio + press
+    // animation from firing on a no-op.
+    final bool isOnlineOpponentTurn = state.isWaitingForOpponent;
     return state.tokens.map((final Token t) {
       final bool isSelected = state.selectedTokenId == t.id;
       final bool isSelectable = state.phase == GamePhase.move &&
@@ -140,7 +154,8 @@ class BoardWidget extends StatelessWidget {
       // animation fires for ignored taps either — feels much cleaner.
       final bool canBeTapped = state.phase == GamePhase.move &&
           t.team == state.turn &&
-          !isAiTurn;
+          !isAiTurn &&
+          !isOnlineOpponentTurn;
       return AnimatedToken(
         key: ValueKey<String>(t.id),
         token: t,

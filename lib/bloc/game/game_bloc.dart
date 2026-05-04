@@ -5,6 +5,8 @@ import 'package:bloc/bloc.dart';
 import 'package:flutter/foundation.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:mini_kickers/data/models/game_models.dart';
+import 'package:mini_kickers/data/models/online_context.dart';
+import 'package:mini_kickers/data/models/online_match.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/commentary_helper.dart';
@@ -13,6 +15,13 @@ import 'package:mini_kickers/utils/game_logic.dart';
 part 'game_bloc.freezed.dart';
 part 'game_event.dart';
 part 'game_state.dart';
+
+/// Callback shape used by [OnlineGameController] to push every
+/// locally-initiated state change to Firestore. The bloc invokes it
+/// from `onTransition` for all events EXCEPT [ApplyRemoteStateEvent]
+/// — that filter is what keeps the two clients from echoing each
+/// other's state back and forth in an infinite loop.
+typedef GameStatePushHook = void Function(GameState newState);
 
 class GameBloc extends Bloc<GameEvent, GameState> {
   GameBloc() : super(GameState.initial()) {
@@ -28,12 +37,52 @@ class GameBloc extends Bloc<GameEvent, GameState> {
     on<GoalFlashClearEvent>(_onGoalFlashClear);
     on<CoinTossCompleteEvent>(_onCoinTossComplete);
     on<RefreshSettingsEvent>(_onRefreshSettings);
+    on<ApplyRemoteStateEvent>(_onApplyRemoteState);
+    on<AttachOnlineContextEvent>(_onAttachOnlineContext);
 
     _startTimer();
   }
 
   final Random _rng = Random();
   Timer? _matchTimer;
+
+  /// Installed by [OnlineGameController] right after it dispatches the
+  /// initial [AttachOnlineContextEvent]. While set, [onTransition]
+  /// invokes it for every state change EXCEPT those triggered by
+  /// [ApplyRemoteStateEvent] (which already came from the wire and
+  /// must not be echoed back).
+  ///
+  /// Cleared on dispose by the controller — the bloc itself never
+  /// touches it directly so local play has zero overhead.
+  GameStatePushHook? _pushHook;
+
+  /// Setter used by [OnlineGameController]. Public on purpose so
+  /// the controller doesn't need a backdoor; it's still a no-op
+  /// when no controller is attached.
+  set pushHook(final GameStatePushHook? hook) => _pushHook = hook;
+
+  /// Override called by the bloc framework after every emit. We use
+  /// it as the single chokepoint for "tell the OnlineGameController
+  /// about a new state worth syncing." The [ApplyRemoteStateEvent]
+  /// guard is what prevents the two clients from ping-ponging the
+  /// same state back and forth.
+  @override
+  void onTransition(final Transition<GameEvent, GameState> transition) {
+    super.onTransition(transition);
+    if (_pushHook == null) return;
+    if (transition.event is ApplyRemoteStateEvent) return;
+    if (transition.event is AttachOnlineContextEvent) return;
+    _pushHook!(transition.nextState);
+  }
+
+  /// Returns true when the action should be IGNORED because we're in
+  /// online mode and it's the opposite player's turn. Local play is
+  /// unaffected (no online context → always returns false).
+  bool _shouldIgnoreLocalAction() {
+    final OnlineContext? online = state.online;
+    if (online == null) return false;
+    return !online.isLocalTurn(state.turn);
+  }
 
   void _startTimer() {
     _matchTimer?.cancel();
@@ -75,6 +124,12 @@ class GameBloc extends Bloc<GameEvent, GameState> {
         state.phase == GamePhase.coinToss) {
       return;
     }
+    // Online: only the active-team client decrements + pushes the
+    // shared clock. The inactive client receives `time_left` updates
+    // via the remote sync stream, so its UI still counts down — just
+    // driven by the wire instead of a local timer. Without this gate
+    // both clients would write to `time_left` every second and race.
+    if (_shouldIgnoreLocalAction()) return;
     final int next = state.timeLeft - 1;
     if (next <= 0) {
       final int r = state.redScore;
@@ -99,6 +154,10 @@ class GameBloc extends Bloc<GameEvent, GameState> {
     final Emitter<GameState> emit,
   ) async {
     if (state.phase != GamePhase.roll || state.isRolling) return;
+    // Online: only the active-team player rolls. The opposite client
+    // observes `is_rolling: true` followed by the dice value via the
+    // remote sync stream and runs the same animation.
+    if (_shouldIgnoreLocalAction()) return;
     AudioHelper.diceRoll();
     emit(state.copyWith(
       isRolling: true,
@@ -179,6 +238,9 @@ class GameBloc extends Bloc<GameEvent, GameState> {
     final Emitter<GameState> emit,
   ) {
     if (state.phase != GamePhase.move) return;
+    // Online: only the active player can pick a token. Stops the
+    // inactive client's stale taps from changing the highlight set.
+    if (_shouldIgnoreLocalAction()) return;
     final Token? t = state.tokens.where((final Token x) => x.id == event.id).firstOrNull;
     if (t == null || t.team != state.turn) return;
     final List<Pos> reachable = GameLogic.getReachable(
@@ -228,6 +290,10 @@ class GameBloc extends Bloc<GameEvent, GameState> {
     final MoveToEvent event,
     final Emitter<GameState> emit,
   ) async {
+    // Online: only the active-side client commits the move. The
+    // opposite side observes the resulting state via the remote sync
+    // stream — its own MoveTo events are dropped here.
+    if (_shouldIgnoreLocalAction()) return;
     // ── Strict guard: target MUST be one of the cells the rules engine
     // (`getReachable`) currently produced. This enforces:
     //   1. exact dice steps (no stopping early, no overshoot)
@@ -423,6 +489,15 @@ class GameBloc extends Bloc<GameEvent, GameState> {
     final CoinTossCompleteEvent event,
     final Emitter<GameState> emit,
   ) {
+    // Online: the kickoff team is decided server-side at match
+    // creation (see MatchService._initialMatchMap) and arrives via
+    // ApplyRemoteState as `state.turn`. The coin-toss UI on each
+    // client must animate to that same predetermined value rather
+    // than rolling its own Random — otherwise the two clients would
+    // disagree about who kicks off. We honour `event.winner` here
+    // either way: in local play it's whatever the local widget
+    // picked; in online play the widget is fed `state.turn` so the
+    // value matches what's already on the doc.
     emit(state.copyWith(
       phase: GamePhase.roll,
       turn: event.winner,
@@ -433,6 +508,51 @@ class GameBloc extends Bloc<GameEvent, GameState> {
         },
       ),
     ));
+  }
+
+  /// Online-1v1: replace the local state wholesale with whatever
+  /// arrived via the wire. Called by [OnlineGameController] on every
+  /// `matches/{id}` snapshot that wasn't initiated by us.
+  ///
+  /// We intentionally DON'T copy the local `online` field from the
+  /// inbound state — the [OnlineContext] is purely client-side
+  /// (it embeds our own uid + team) and never round-trips through
+  /// Firestore. Instead we keep whichever context the bloc already
+  /// has from the prior [AttachOnlineContextEvent].
+  void _onApplyRemoteState(
+    final ApplyRemoteStateEvent event,
+    final Emitter<GameState> emit,
+  ) {
+    final OnlineMatch m = event.match;
+    emit(GameState(
+      tokens: m.tokens,
+      ball: m.ball,
+      turn: m.turn,
+      phase: m.phase,
+      dice: m.dice,
+      redDice: m.redDice,
+      blueDice: m.blueDice,
+      selectedTokenId: m.selectedTokenId,
+      highlights: m.highlights,
+      redScore: m.redScore,
+      blueScore: m.blueScore,
+      timeLeft: m.timeLeft,
+      isRolling: m.isRolling,
+      showGoalFlash: m.showGoalFlash,
+      message: m.message,
+      online: event.context,
+    ));
+  }
+
+  /// Online-1v1: install or clear the [OnlineContext] without
+  /// touching any other field. Called once at match start by
+  /// [OnlineGameController.start] (with a non-null context) and
+  /// once on dispose (with null).
+  void _onAttachOnlineContext(
+    final AttachOnlineContextEvent event,
+    final Emitter<GameState> emit,
+  ) {
+    emit(state.copyWith(online: event.context));
   }
 
   String get formattedTime {

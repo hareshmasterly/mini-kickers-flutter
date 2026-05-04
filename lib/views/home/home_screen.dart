@@ -10,6 +10,7 @@ import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/routes/routes_name.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/data/services/app_update_service.dart';
+import 'package:mini_kickers/data/services/user_service.dart';
 import 'package:mini_kickers/utils/analytics_helper.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/responsive.dart';
@@ -22,6 +23,7 @@ import 'package:mini_kickers/views/home/widget/glass_action_card.dart';
 import 'package:mini_kickers/views/home/widget/hero_showcase.dart';
 import 'package:mini_kickers/views/home/widget/mode_card.dart';
 import 'package:mini_kickers/views/home/widget/stadium_background.dart';
+import 'package:mini_kickers/views/home/widget/welcome_card.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -59,8 +61,21 @@ class _HomeScreenState extends State<HomeScreen>
     // dialog covers it. The check is best-effort and silently no-ops
     // on any failure (network down, doc missing, etc.) so it can
     // never block the user from playing.
-    WidgetsBinding.instance.addPostFrameCallback((final _) {
-      Future<void>.delayed(const Duration(milliseconds: 600), () async {
+    //
+    // The welcome card (first-launch only) takes priority — we run
+    // it FIRST and await dismissal. Update check follows so the
+    // user always sees the welcome BEFORE any update prompt.
+    WidgetsBinding.instance.addPostFrameCallback((final _) async {
+      // 1. First-launch welcome card — only shown when the user has
+      //    no saved profile yet. After confirmation it never appears
+      //    again on this install.
+      if (UserService.instance.isFirstLaunch && mounted) {
+        await showWelcomeCard(context);
+      }
+      if (!mounted) return;
+
+      // 2. Update check.
+      Future<void>.delayed(const Duration(milliseconds: 400), () async {
         if (!mounted) return;
         final UpdateCheckResult result =
             await AppUpdateService.instance.check();
@@ -454,10 +469,18 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   /// Bottom action row — secondary actions only. The previous "VS AI"
-  /// entry moved up to a primary [ModeCard]; "MULTIPLAYER" stays here
-  /// (locked) since it isn't shippable yet.
+  /// entry moved up to a primary [ModeCard]; "ONLINE" lives here
+  /// alongside the GUIDE and is gated by [_canPlayOnline] (true once
+  /// the user has finished the welcome-card flow + a profile exists).
+  ///
+  /// Tapping ONLINE pushes [RouteName.onlineLobbyScreen]. The lobby
+  /// returns either a `String` match id (random match found, room
+  /// joined, or room created and joined) or `null` (cancelled).
+  /// In Pass 2 we surface the match id via a snackbar — the actual
+  /// game-screen integration arrives in Pass 4.
   Widget _buildActionRow({final bool compact = false}) {
     final double spacing = compact ? 10 : 14;
+    final bool canPlayOnline = _canPlayOnline;
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
@@ -470,14 +493,75 @@ class _HomeScreenState extends State<HomeScreen>
         ),
         SizedBox(width: spacing),
         GlassActionCard(
-          icon: Icons.people_alt_rounded,
-          label: 'MULTI-\nPLAYER',
-          locked: true,
+          icon: Icons.public_rounded,
+          label: 'PLAY\nONLINE',
+          // Locked while the welcome-card flow is still pending —
+          // the online flow needs a confirmed profile to enqueue.
+          locked: !canPlayOnline,
+          lockedLabel: 'SOON',
           compact: compact,
-          onTap: () {},
+          onTap: _onPlayOnline,
         ),
       ],
     );
+  }
+
+  /// True once the user's profile is loaded — needed before they can
+  /// enter the matchmaking queue or create / join a room.
+  bool get _canPlayOnline => UserService.instance.profile != null;
+
+  /// Push the online lobby and react to whatever it pops back.
+  ///
+  /// On a returned match id we navigate into the GameScreen with the
+  /// id baked in. The screen instantiates an [OnlineGameController]
+  /// internally to drive sync; we don't need to plumb anything else
+  /// through here. Bloc state is reset first so the new match starts
+  /// from `GameState.initial()` and inherits the wire state cleanly
+  /// on the first sync.
+  Future<void> _onPlayOnline() async {
+    if (!_canPlayOnline) return;
+    final String? matchId = await Navigator.of(context).pushNamed<String?>(
+      RouteName.onlineLobbyScreen,
+    );
+    if (!mounted || matchId == null) return;
+    Analytics.logGameStarted();
+    SettingsService.instance.gameMode = GameMode.vsOnline;
+    context.read<GameBloc>().add(const ResetGameEvent());
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 600),
+        reverseTransitionDuration: const Duration(milliseconds: 400),
+        settings: const RouteSettings(name: RouteName.gameScreen),
+        pageBuilder: (
+          final BuildContext _,
+          final Animation<double> a,
+          final Animation<double> b,
+        ) =>
+            GameScreen(onlineMatchId: matchId),
+        transitionsBuilder: (
+          final BuildContext _,
+          final Animation<double> a,
+          final Animation<double> b,
+          final Widget child,
+        ) {
+          final Animation<double> curved =
+              CurvedAnimation(parent: a, curve: Curves.easeOutCubic);
+          return FadeTransition(
+            opacity: curved,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 1.18, end: 1.0).animate(curved),
+              child: child,
+            ),
+          );
+        },
+      ),
+    ).then((final _) {
+      // Same restoration pattern as the local game flow — snap mode
+      // back to vsHuman so the next default PLAY tap doesn't
+      // accidentally relaunch in online mode without a match id.
+      if (!mounted) return;
+      SettingsService.instance.gameMode = GameMode.vsHuman;
+    });
   }
 
   Widget _buildFooter() {

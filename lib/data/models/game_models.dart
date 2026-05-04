@@ -12,7 +12,13 @@ enum GamePhase { coinToss, roll, move, moveBall, gameOver }
 /// is started fresh from the home screen, so the user picks their mode
 /// each time. AI difficulty (which IS persisted) lives in
 /// [SettingsService.aiDifficulty].
-enum GameMode { vsHuman, vsAi }
+///
+/// `vsOnline` — Internet 1v1 against another anonymous-Auth user. The
+/// local bloc still owns the gameplay loop, but moves are mirrored
+/// through Firestore via `MatchService` so both clients see the same
+/// state. The user picks their team (red / blue) at match-create time
+/// based on the coin toss recorded in the `matches/{id}` doc.
+enum GameMode { vsHuman, vsAi, vsOnline }
 
 /// AI tuning tier. The user picks this from the difficulty dialog when
 /// starting a VS AI match (or from Settings). Each tier maps to a set

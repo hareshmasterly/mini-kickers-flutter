@@ -1,17 +1,73 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/bloc/game/game_bloc.dart';
 import 'package:mini_kickers/data/models/game_models.dart';
+import 'package:mini_kickers/data/models/match_player.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/team_colors.dart';
+import 'package:mini_kickers/utils/handle_generator.dart';
 import 'package:mini_kickers/utils/responsive.dart';
 import 'package:mini_kickers/utils/ad_manager.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/views/game/widget/confetti_overlay.dart';
+
+/// Compact summary of a single opponent's record — fed into
+/// [GameOverWidget.opponentStats] so the post-match card can display
+/// the person they just played's W/L/D and goal difference. The
+/// fetch is one-shot and best-effort; the card renders fine without it.
+class OpponentMatchSummary {
+  const OpponentMatchSummary({
+    required this.player,
+    required this.matchesPlayed,
+    required this.matchesWon,
+    required this.matchesDrawn,
+    required this.goalsScored,
+    required this.goalsConceded,
+  });
+
+  final MatchPlayer player;
+  final int matchesPlayed;
+  final int matchesWon;
+  final int matchesDrawn;
+  final int goalsScored;
+  final int goalsConceded;
+
+  int get matchesLost => matchesPlayed - matchesWon - matchesDrawn;
+
+  /// Best-effort one-shot read of `users/{opponent.uid}` to populate
+  /// the post-match opponent-stats row. Returns null on any failure
+  /// (network, missing doc, parse error) — the UI gracefully hides
+  /// the row in that case.
+  static Future<OpponentMatchSummary?> fetch(final MatchPlayer player) async {
+    try {
+      final DocumentSnapshot<Map<String, dynamic>> snap =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(player.uid)
+              .get();
+      if (!snap.exists) return null;
+      final Map<String, dynamic> data = snap.data() ?? <String, dynamic>{};
+      return OpponentMatchSummary(
+        player: player,
+        matchesPlayed: (data['matches_played'] as num?)?.toInt() ?? 0,
+        matchesWon: (data['matches_won'] as num?)?.toInt() ?? 0,
+        matchesDrawn: (data['matches_drawn'] as num?)?.toInt() ?? 0,
+        goalsScored: (data['goals_scored'] as num?)?.toInt() ?? 0,
+        goalsConceded: (data['goals_conceded'] as num?)?.toInt() ?? 0,
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('OpponentSummary fetch failed: $e');
+      return null;
+    }
+  }
+}
 
 class GameOverWidget extends StatefulWidget {
   const GameOverWidget({
@@ -20,12 +76,25 @@ class GameOverWidget extends StatefulWidget {
     required this.blueScore,
     required this.onPlayAgain,
     required this.onHome,
+    this.isOnline = false,
+    this.opponentStats,
   });
 
   final int redScore;
   final int blueScore;
   final VoidCallback onPlayAgain;
   final VoidCallback onHome;
+
+  /// True when this match was an online 1v1. Swaps the primary CTA
+  /// from "PLAY AGAIN" (which would just restart the local bloc) to
+  /// "FIND NEW OPPONENT" (which pops back to the lobby) and unhides
+  /// the opponent stats row.
+  final bool isOnline;
+
+  /// Pre-fetched opponent record + display info to render inline at
+  /// the bottom of the card. Only used when [isOnline] is true.
+  /// Caller is responsible for the read — keeps this widget pure.
+  final OpponentMatchSummary? opponentStats;
 
   @override
   State<GameOverWidget> createState() => _GameOverWidgetState();
@@ -215,8 +284,17 @@ class _GameOverWidgetState extends State<GameOverWidget>
               compact: compact,
               isTablet: isTablet,
             ),
+            if (widget.isOnline && widget.opponentStats != null) ...<Widget>[
+              SizedBox(height: compact ? 10 : 18),
+              _OpponentStatsRow(
+                summary: widget.opponentStats!,
+                compact: compact,
+                isTablet: isTablet,
+              ),
+            ],
             SizedBox(height: gapBeforePlay),
             _PlayAgainButton(
+              label: widget.isOnline ? 'FIND NEW MATCH' : 'PLAY AGAIN',
               onTap: () {
                 AudioHelper.select();
                 widget.onPlayAgain();
@@ -412,10 +490,12 @@ class _ScoreRow extends StatelessWidget {
 class _PlayAgainButton extends StatefulWidget {
   const _PlayAgainButton({
     required this.onTap,
+    required this.label,
     this.compact = false,
     this.isTablet = false,
   });
   final VoidCallback onTap;
+  final String label;
   final bool compact;
   final bool isTablet;
 
@@ -499,7 +579,7 @@ class _PlayAgainButtonState extends State<_PlayAgainButton>
                   ),
                   SizedBox(width: widget.compact ? 6 : 10),
                   Text(
-                    'PLAY AGAIN',
+                    widget.label,
                     style: AppFonts.bebasNeue(
                       fontSize: widget.compact
                           ? 18
@@ -521,25 +601,159 @@ class _PlayAgainButtonState extends State<_PlayAgainButton>
   }
 }
 
-class GameOverHost extends StatelessWidget {
+/// Online-mode stats row — shows the opponent's avatar + handle and a
+/// compact "W-D-L · GS-GC" record fetched after the match ended.
+/// Hides itself if [summary] couldn't be fetched (handled by the
+/// caller via the optional [GameOverWidget.opponentStats] field).
+class _OpponentStatsRow extends StatelessWidget {
+  const _OpponentStatsRow({
+    required this.summary,
+    required this.compact,
+    required this.isTablet,
+  });
+
+  final OpponentMatchSummary summary;
+  final bool compact;
+  final bool isTablet;
+
+  @override
+  Widget build(final BuildContext context) {
+    final double avatarSize = compact ? 28 : (isTablet ? 44 : 36);
+    final double handleFont = compact ? 11 : (isTablet ? 16 : 13);
+    final double statFont = compact ? 10 : (isTablet ? 13 : 11);
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 10 : 14,
+        vertical: compact ? 8 : 12,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: AppColors.brandYellow.withValues(alpha: 0.32),
+          width: 1.2,
+        ),
+      ),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: avatarSize,
+            height: avatarSize,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.brandYellow.withValues(alpha: 0.18),
+              border: Border.all(
+                color: AppColors.brandYellow.withValues(alpha: 0.55),
+                width: 1.2,
+              ),
+            ),
+            child: Center(
+              child: Text(
+                HandleGenerator.emojiFor(summary.player.avatarId),
+                style: TextStyle(fontSize: avatarSize * 0.55),
+              ),
+            ),
+          ),
+          SizedBox(width: compact ? 8 : 12),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  summary.player.displayName.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: handleFont,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${summary.matchesWon}W · ${summary.matchesDrawn}D · '
+                  '${summary.matchesLost}L  ·  '
+                  '${summary.goalsScored} GF / ${summary.goalsConceded} GA',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontSize: statFont,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class GameOverHost extends StatefulWidget {
   const GameOverHost({super.key});
+
+  @override
+  State<GameOverHost> createState() => _GameOverHostState();
+}
+
+class _GameOverHostState extends State<GameOverHost> {
+  /// Cached opponent stats fetched once when the match transitions to
+  /// gameOver. Keyed by the opponent uid so a subsequent match against
+  /// a different opponent doesn't show stale data.
+  String? _statsForUid;
+  OpponentMatchSummary? _opponentStats;
 
   @override
   Widget build(final BuildContext context) {
     return BlocBuilder<GameBloc, GameState>(
       buildWhen: (final GameState p, final GameState n) =>
-          p.phase != n.phase || p.redScore != n.redScore || p.blueScore != n.blueScore,
+          p.phase != n.phase ||
+          p.redScore != n.redScore ||
+          p.blueScore != n.blueScore,
       builder: (final BuildContext context, final GameState state) {
         if (state.phase != GamePhase.gameOver) return const SizedBox.shrink();
+        // Fire-and-forget opponent stats fetch on first render of the
+        // game-over screen. Idempotent — guarded by uid match.
+        final MatchPlayer? opponent = state.online?.opponent;
+        if (opponent != null && _statsForUid != opponent.uid) {
+          _statsForUid = opponent.uid;
+          _opponentStats = null;
+          unawaited(
+            OpponentMatchSummary.fetch(opponent).then(
+              (final OpponentMatchSummary? summary) {
+                if (!mounted) return;
+                setState(() => _opponentStats = summary);
+              },
+            ),
+          );
+        }
+        final bool isOnline = state.online != null;
         return GameOverWidget(
           redScore: state.redScore,
           blueScore: state.blueScore,
+          isOnline: isOnline,
+          opponentStats: _opponentStats,
           onPlayAgain: () async {
-            // Post-match interstitial before resetting → coin toss.
+            // Post-match interstitial before resetting → coin toss
+            // (or, in online mode, before popping back to the lobby).
             // Gated remotely by `show_ads` + `show_interstitial_on_play_again`.
             final GameBloc bloc = context.read<GameBloc>();
             await AdManager.instance.showPlayAgainInterstitial();
-            bloc.add(const ResetGameEvent());
+            if (!context.mounted) return;
+            if (isOnline) {
+              // Online "PLAY AGAIN" → go pick a new opponent. Pop the
+              // game route; the home screen's await will fall through
+              // and the user can tap PLAY ONLINE again. (Pass 6+ may
+              // add a "rematch with same opponent" handoff; for now
+              // the simpler new-opponent flow is enough.)
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            } else {
+              bloc.add(const ResetGameEvent());
+            }
           },
           onHome: () {
             if (Navigator.of(context).canPop()) {

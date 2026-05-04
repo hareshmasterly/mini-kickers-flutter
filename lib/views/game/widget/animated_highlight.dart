@@ -21,7 +21,11 @@ class AnimatedHighlight extends StatefulWidget {
     required this.indexDelay,
   });
 
-  final VoidCallback onTap;
+  /// Tap callback. Nullable so the board can render a "spectator"
+  /// highlight (visible but inert) for the inactive client during an
+  /// online 1v1 — the highlights still come through via remote sync
+  /// but the local user can't act on them.
+  final VoidCallback? onTap;
   final int indexDelay;
 
   @override

@@ -2,6 +2,10 @@ part of 'game_bloc.dart';
 
 @freezed
 abstract class GameState with _$GameState {
+  // Private constructor required by freezed so we can declare custom
+  // getters ([isWaitingForOpponent]) on the class.
+  const GameState._();
+
   const factory GameState({
     required final List<Token> tokens,
     required final Pos ball,
@@ -32,6 +36,13 @@ abstract class GameState with _$GameState {
     required final bool isRolling,
     required final bool showGoalFlash,
     required final String message,
+
+    /// Online-1v1 context — only non-null when the match was started
+    /// from the online lobby. The [OnlineGameController] sets this on
+    /// the first `ApplyRemoteState` event and keeps it stable for the
+    /// rest of the match. Local play (vsHuman / vsAi) leaves it null,
+    /// which lets every existing call site keep working unchanged.
+    final OnlineContext? online,
   }) = _GameState;
 
   factory GameState.initial() => GameState(
@@ -50,5 +61,13 @@ abstract class GameState with _$GameState {
         isRolling: false,
         showGoalFlash: false,
         message: 'Toss the coin to decide who kicks off!',
+        online: null,
       );
+
+  /// Convenience: true when we're in online mode AND it's the OPPOSITE
+  /// player's turn. Used by event handlers to short-circuit local
+  /// actions like rolling / selecting / moving when the inactive side
+  /// taps something.
+  bool get isWaitingForOpponent =>
+      online != null && online!.localTeam != turn;
 }

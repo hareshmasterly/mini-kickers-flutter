@@ -22,7 +22,14 @@ class CoinTossHost extends StatelessWidget {
           p.phase != n.phase,
       builder: (final BuildContext context, final GameState state) {
         if (state.phase != GamePhase.coinToss) return const SizedBox.shrink();
+        // In online mode the kickoff team is decided server-side at
+        // match-create time and arrives via remote sync as `state.turn`.
+        // We pass it down so the coin-toss animation lands on the same
+        // winner on both clients — without this each side would roll
+        // its own Random and disagree about who kicks off.
+        final Team? predetermined = state.online != null ? state.turn : null;
         return CoinTossWidget(
+          predeterminedWinner: predetermined,
           onComplete: (final Team winner) {
             context.read<GameBloc>().add(
                   GameEvent.coinTossComplete(winner: winner),
@@ -35,9 +42,19 @@ class CoinTossHost extends StatelessWidget {
 }
 
 class CoinTossWidget extends StatefulWidget {
-  const CoinTossWidget({super.key, required this.onComplete});
+  const CoinTossWidget({
+    super.key,
+    required this.onComplete,
+    this.predeterminedWinner,
+  });
 
   final void Function(Team winner) onComplete;
+
+  /// When non-null, the toss MUST land on this team. Used in online
+  /// 1v1 to keep both clients' animations in sync — the kickoff team
+  /// is decided server-side at match creation. Null in local play
+  /// where each device picks its own random winner.
+  final Team? predeterminedWinner;
 
   @override
   State<CoinTossWidget> createState() => _CoinTossWidgetState();
@@ -56,6 +73,12 @@ class _CoinTossWidgetState extends State<CoinTossWidget>
   static int _tossCounter = 0;
 
   Team _pickWinner() {
+    // Online: honour the server-decided winner so both clients land
+    // on the same coin face. Local play falls through to the
+    // entropy-mix path below.
+    if (widget.predeterminedWinner != null) {
+      return widget.predeterminedWinner!;
+    }
     _tossCounter++;
     final int micro = DateTime.now().microsecondsSinceEpoch;
     final int r1 = _rng.nextInt(0x7FFFFFFF);

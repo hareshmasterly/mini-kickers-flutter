@@ -9,8 +9,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mini_kickers/app/my_app.dart';
+import 'package:mini_kickers/data/services/avatar_service.dart';
 import 'package:mini_kickers/data/services/faq_service.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
+import 'package:mini_kickers/data/services/user_service.dart';
 import 'package:mini_kickers/routes/app_providers.dart';
 import 'package:mini_kickers/utils/ad_manager.dart';
 
@@ -75,6 +77,21 @@ Future<void> main() async {
   // short-circuits in debug, but disabling collection at the SDK
   // level is the belt-and-braces guarantee.
   await FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(kReleaseMode);
+
+  // Avatar catalog — must initialise BEFORE UserService because the
+  // handle generator (called by UserService.init for new users)
+  // consults [AvatarService.defaults] to pick a random avatar. If
+  // the fetch fails, the service falls back to a hardcoded 12-animal
+  // pool, so the welcome card still has options offline.
+  await AvatarService.instance.init();
+
+  // User identity — Firebase Anonymous Auth + load-or-create the
+  // matching `users/{uid}` Firestore profile. Best-effort: if the
+  // network is down or App Check rejects, [UserService.init] swallows
+  // the error and we proceed with no profile (the home screen's
+  // welcome card simply won't appear and online play would be
+  // unavailable until the next launch).
+  await UserService.instance.init();
 
   if (kReleaseMode) {
     FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;

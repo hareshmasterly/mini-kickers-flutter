@@ -34,6 +34,98 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Per-install user profiles — one doc per Firebase Anonymous uid.
+    // Public read so opponents can render each other's handle/avatar
+    // in online play. Each user can only write their OWN doc.
+    // Server-side cleanup (Cloud Function on auth deletion + 30-day
+    // inactivity rule) handles ghost-account removal — clients
+    // never delete.
+    match /users/{uid} {
+      allow read: if true;
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    // Handle uniqueness reservations. Each doc id is the lower-cased
+    // handle. Created during profile setup; deleted by the Cloud
+    // Function when the owning user is removed. Public read so
+    // clients can collision-check before claiming. Writes restricted
+    // to the authenticated user reserving for themselves.
+    match /handles/{handle} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Avatar catalog — editor-curated list of pickable avatars used
+    // by the welcome card + handle generator. Public read so every
+    // client can list options. Writes are admin-only via Firebase
+    // Console (never from the app).
+    match /avatars/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ── Online 1v1 collections ─────────────────────────────────
+
+    // Matchmaking queue. Each waiting player has one doc keyed by
+    // their uid. Read by other players + Cloud Function pair-up
+    // logic; written only by the player themselves (to enqueue) or
+    // deleted by themselves / by a pair-up transaction.
+    match /matchmaking_queue/{uid} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid;
+      // Allow any authed user to delete — needed for the client-side
+      // pair-up transaction where Player A deletes Player B's queue
+      // doc to claim them. Server-trusted because we also delete our
+      // own doc in the same transaction (atomic pair).
+      allow delete: if request.auth != null;
+    }
+
+    // Live matches. Both participating players can read + write
+    // (every move is a Firestore write). Other authed users can read
+    // but not write — useful for spectator mode in the future.
+    match /matches/{matchId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && (request.resource.data.red.uid == request.auth.uid
+         || request.resource.data.blue.uid == request.auth.uid);
+      allow update: if request.auth != null
+        && (resource.data.red.uid == request.auth.uid
+         || resource.data.blue.uid == request.auth.uid);
+      allow delete: if false;
+    }
+
+    // Friend-pair room codes. Public read so the joiner can find
+    // them by code. Created by the host; updated by the joiner (to
+    // stamp `match_id` + flip `status` to `matched`).
+    match /rooms/{code} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.created_by.uid == request.auth.uid;
+      // Only the joiner (any authed user) can flip an open room to
+      // matched by adding their match_id. Once matched/expired it's
+      // immutable.
+      allow update: if request.auth != null
+        && resource.data.status == 'open'
+        && request.resource.data.status == 'matched';
+      allow delete: if false;
+    }
+
+    // Heartbeat docs — one per active player while they're in a
+    // match. Each player writes only their own; opponents read to
+    // detect drop-outs.
+    match /connections/{uid} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid;
+      allow delete: if request.auth != null
+        && request.auth.uid == uid;
+    }
+
     // Default deny — any future collection must add its own rule above.
     match /{document=**} {
       allow read, write: if false;

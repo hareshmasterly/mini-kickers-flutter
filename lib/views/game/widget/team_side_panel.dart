@@ -71,12 +71,21 @@ class TeamSidePanel extends StatelessWidget {
                 final bool isAiTeam =
                     SettingsService.instance.gameMode == GameMode.vsAi &&
                         team == Team.blue;
+                // True when this panel belongs to the OPPONENT in an
+                // online 1v1. The dice on their side must never be
+                // tappable — only the active local player rolls. Their
+                // dice value still updates via remote sync.
+                final bool isOnlineOpponentTeam =
+                    state.online != null &&
+                        state.online!.localTeam != team;
                 // Dice is tappable only for HUMAN turns — in VS AI mode
                 // the AiController dispatches RollDiceEvent itself and
                 // we must never let the user manually roll on the bot's
-                // behalf.
+                // behalf. In online mode we additionally suppress tap
+                // affordances on the opponent's panel.
                 final bool canTap = isMyTurn &&
                     !isAiTeam &&
+                    !isOnlineOpponentTeam &&
                     state.phase == GamePhase.roll &&
                     !state.isRolling;
 
