@@ -26,6 +26,13 @@ import 'package:mini_kickers/data/models/team_palette.dart';
 ///     `show_interstitial_every_Nth_nav_push` — int. Frequency
 ///     thresholds for the goal-based and navigation-based interstitial
 ///     triggers respectively.
+///   • `show_amazon_ad_overlay` — bool. Master switch for the in-house
+///     "Buy on Amazon" promo overlay shown on goal slots that aren't
+///     consumed by a paid interstitial. Independent of `show_ads`
+///     (the paid AdMob switch).
+///   • `amazon_ad_duration_second` — int (seconds). How long the
+///     Amazon overlay stays visible before auto-dismissing. Defaults
+///     to 10 when missing or invalid.
 class RemoteAppSettings {
   const RemoteAppSettings({
     this.defaultGameDuration,
@@ -42,6 +49,8 @@ class RemoteAppSettings {
     this.showInterstitialOnScreenNavigation,
     this.interstitialOnEveryNthGoal,
     this.interstitialEveryNthNavPush,
+    this.showAmazonAdOverlay,
+    this.amazonAdDurationSeconds,
   });
 
   final int? defaultGameDuration;
@@ -60,6 +69,10 @@ class RemoteAppSettings {
   final bool? showInterstitialOnScreenNavigation;
   final int? interstitialOnEveryNthGoal;
   final int? interstitialEveryNthNavPush;
+
+  // ── Amazon promo overlay (in-house, separate from AdMob) ──────────────
+  final bool? showAmazonAdOverlay;
+  final int? amazonAdDurationSeconds;
 
   factory RemoteAppSettings.fromMap(final Map<String, dynamic> data) {
     final List<dynamic> colors = (data['team_colors'] as List<dynamic>?) ??
@@ -101,6 +114,9 @@ class RemoteAppSettings {
           (data['show_interstitial_on_every_Nth_goal'] as num?)?.toInt(),
       interstitialEveryNthNavPush:
           (data['show_interstitial_every_Nth_nav_push'] as num?)?.toInt(),
+      showAmazonAdOverlay: data['show_amazon_ad_overlay'] as bool?,
+      amazonAdDurationSeconds:
+          (data['amazon_ad_duration_second'] as num?)?.toInt(),
     );
   }
 

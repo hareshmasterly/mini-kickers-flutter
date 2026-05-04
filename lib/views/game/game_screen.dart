@@ -9,16 +9,19 @@ import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/team_colors.dart';
 import 'package:mini_kickers/utils/ad_manager.dart';
+import 'package:mini_kickers/utils/analytics_helper.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/responsive.dart';
 import 'package:mini_kickers/views/game/widget/board_widget.dart';
 import 'package:mini_kickers/views/game/widget/coin_toss_widget.dart';
+import 'package:mini_kickers/views/game/widget/commentary_toast.dart';
 import 'package:mini_kickers/views/game/widget/first_goal_ad_overlay.dart';
 import 'package:mini_kickers/views/game/widget/game_over_widget.dart';
 import 'package:mini_kickers/views/game/widget/goal_flash_widget.dart';
 import 'package:mini_kickers/views/game/widget/move_debug_overlay.dart';
+import 'package:mini_kickers/views/game/widget/restart_confirm_dialog.dart';
 import 'package:mini_kickers/views/game/widget/screen_shake.dart';
-import 'package:mini_kickers/views/game/widget/side_panel_widget.dart';
+import 'package:mini_kickers/views/game/widget/team_side_panel.dart';
 
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
@@ -70,12 +73,15 @@ class _GameScreenState extends State<GameScreen> {
               }
               // Goal flash just ended.
               //   • Nth goal (when goal slot enabled) → paid interstitial
-              //   • Otherwise                         → Amazon promo overlay
+              //   • Otherwise (and Amazon overlay enabled) → house promo
+              //   • Otherwise still → no overlay at all
               // Cadence + toggles come from remote `app_settings`; see
-              // [AdManager.shouldShowGoalInterstitial].
+              // [AdManager.shouldShowGoalInterstitial] and
+              // [SettingsService.showAmazonAdOverlay].
               if (AdManager.instance.shouldShowGoalInterstitial()) {
                 AdManager.instance.showGoalInterstitial();
-              } else if (!_showGoalAd) {
+              } else if (SettingsService.instance.showAmazonAdOverlay &&
+                  !_showGoalAd) {
                 setState(() => _showGoalAd = true);
               }
             },
@@ -91,6 +97,11 @@ class _GameScreenState extends State<GameScreen> {
                   if (state.showGoalFlash) const GoalFlashWidget(),
                   const GameOverHost(),
                   const CoinTossHost(),
+                  // Commentary toast — anchored to the screen's top-right
+                  // corner (NOT the board) so it never overlaps tokens or
+                  // the ball when they're in the bottom rows. The toast
+                  // handles its own safe-area + positioning internally.
+                  const CommentaryToast(),
                   // Debug-only readout (compiled out of release).
                   const MoveDebugOverlay(),
                   if (_showGoalAd)
@@ -112,30 +123,16 @@ class _GameScreenState extends State<GameScreen> {
   Widget _buildContent(final BuildContext context) {
     // Single-source breakpoints — see [Responsive] for the cutoff values.
     final bool compact = Responsive.isCompact(context);
-    // App is locked to landscape (see main.dart). The side-by-side
-    // (board left, side panel right) layout is always the right call —
-    // the stacked narrow layout doesn't fit on small landscape phones
-    // (e.g. iPhone SE in landscape, h ~375 dp), where the board would
-    // be squashed to nothing.
     return Padding(
       padding: EdgeInsets.all(compact ? 10 : 16),
-      child: Stack(
+      child: Column(
         children: <Widget>[
-          Column(
-            children: <Widget>[
-              _Header(compact: compact),
-              SizedBox(height: compact ? 8 : 16),
-              Expanded(child: _wideLayout(compact: compact)),
-            ],
+          _TopBar(
+            compact: compact,
+            onExit: () => _handleExit(context),
           ),
-          Positioned(
-            top: 0,
-            left: 0,
-            child: _ExitButton(
-              compact: compact,
-              onConfirmed: () => _handleExit(context),
-            ),
-          ),
+          SizedBox(height: compact ? 8 : 14),
+          Expanded(child: _wideLayout(compact: compact)),
         ],
       ),
     );
@@ -176,12 +173,42 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _wideLayout({required final bool compact}) {
+    // Each player has their own panel + dice on their physical side of
+    // the device — no more reaching across to roll.
+    //
+    // BOTH panels are wrapped in RotatedBox so they FACE THEIR PLAYER:
+    //   • Left  panel → quarterTurns: 1 (90° CW)  — content's
+    //     reading-direction "top" ends up at screen-right (= player 1's
+    //     "up" direction when sitting on the device's left side and
+    //     looking inward).
+    //   • Right panel → quarterTurns: 3 (90° CCW) — mirror of the above
+    //     for player 2 sitting on the device's right side.
+    //
+    // The panel itself is laid out HORIZONTALLY internally (a row of
+    // [team strip] [score] [LIVE pip] [dice + caption]). After rotation
+    // it appears as a vertical strip at the screen edge, with each
+    // section running top→bottom from that player's viewpoint.
+    final bool isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+    // Tablet panel width: trimmed in steps from 170 → 130 → 110 for a
+    // slimmer, more board-focused look on iPad. At 110 the panel is
+    // only marginally wider than the phone tier (118), which is the
+    // right tradeoff — even on a 12.9" display the dice + score stay
+    // perfectly readable across the table while the board gets the
+    // overwhelming majority of the screen.
+    final double panelWidth = compact ? 84 : (isTablet ? 110 : 118);
+    final double gap = compact ? 8 : 14;
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
+        SizedBox(
+          width: panelWidth,
+          child: const RotatedBox(
+            quarterTurns: 1,
+            child: TeamSidePanel(team: Team.red),
+          ),
+        ),
+        SizedBox(width: gap),
         Expanded(
-          flex: 3,
           child: Column(
             children: <Widget>[
               const Expanded(child: BoardWidget()),
@@ -190,60 +217,241 @@ class _GameScreenState extends State<GameScreen> {
             ],
           ),
         ),
-        const SizedBox(width: 20),
-        const SidePanelWidget(),
+        SizedBox(width: gap),
+        SizedBox(
+          width: panelWidth,
+          child: const RotatedBox(
+            quarterTurns: 3,
+            child: TeamSidePanel(team: Team.blue),
+          ),
+        ),
       ],
     );
   }
-
 }
 
-class _Header extends StatelessWidget {
-  const _Header({required this.compact});
+/// Top-of-screen bar: Exit (left), live match timer + brand title
+/// (centre), Restart (right). Replaces the old vertical _Header — the
+/// new 3-column layout (left team panel, board, right team panel)
+/// needed every vertical pixel for the panels, and the title was
+/// dominating space without adding gameplay info.
+class _TopBar extends StatelessWidget {
+  const _TopBar({required this.compact, required this.onExit});
+
+  final bool compact;
+  final VoidCallback onExit;
+
+  @override
+  Widget build(final BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        _ExitButton(compact: compact, onConfirmed: onExit),
+        const Spacer(),
+        BlocBuilder<GameBloc, GameState>(
+          buildWhen: (final GameState p, final GameState n) =>
+              p.timeLeft != n.timeLeft,
+          builder: (final BuildContext context, final GameState state) {
+            return _TimerCapsule(
+              timeLeft: state.timeLeft,
+              compact: compact,
+            );
+          },
+        ),
+        if (!compact) ...<Widget>[
+          const SizedBox(width: 16),
+          const _BrandWatermark(),
+        ],
+        const Spacer(),
+        _RestartButton(compact: compact),
+      ],
+    );
+  }
+}
+
+/// Glassmorphic capsule showing `M:SS` time-remaining. Pulses + flashes
+/// red below 1 minute.
+class _TimerCapsule extends StatelessWidget {
+  const _TimerCapsule({required this.timeLeft, required this.compact});
+
+  final int timeLeft;
   final bool compact;
 
   @override
   Widget build(final BuildContext context) {
-    final double titleSize = compact ? 30 : 48;
-    final double subSize = compact ? 10 : 12;
-    return Column(
-      children: <Widget>[
-        ShaderMask(
-          shaderCallback: (final Rect bounds) {
-            return const LinearGradient(
-              colors: <Color>[
-                AppColors.accent,
-                Color(0xFFFFFFFF),
-                AppColors.accent,
+    final bool low = timeLeft <= 60;
+    final String mm = (timeLeft ~/ 60).toString();
+    final String ss = (timeLeft % 60).toString().padLeft(2, '0');
+    final Color tint = low ? const Color(0xFFFF5555) : AppColors.accent;
+    final double fontSize = compact ? 22 : 30;
+    final EdgeInsets pad = compact
+        ? const EdgeInsets.symmetric(horizontal: 14, vertical: 6)
+        : const EdgeInsets.symmetric(horizontal: 22, vertical: 10);
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 1, end: low ? 1.06 : 1),
+      duration: const Duration(milliseconds: 600),
+      builder:
+          (final BuildContext context, final double scale, final Widget? child) =>
+              Transform.scale(scale: scale, child: child),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+          child: Container(
+            padding: pad,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: tint.withValues(alpha: 0.55),
+                width: 1.4,
+              ),
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: tint.withValues(alpha: 0.35),
+                  blurRadius: 16,
+                  spreadRadius: 0.5,
+                ),
               ],
-              stops: <double>[0.0, 0.5, 1.0],
-            ).createShader(bounds);
-          },
-          child: Text(
-            'MINI KICKERS',
-            style: AppFonts.bebasNeue(
-              fontSize: titleSize,
-              letterSpacing: titleSize * 0.1,
-              color: Colors.white,
-              shadows: <Shadow>[
-                Shadow(
-                  color: AppColors.accent.withValues(alpha: 0.5),
-                  blurRadius: compact ? 22 : 40,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  Icons.timer_rounded,
+                  color: tint,
+                  size: compact ? 14 : 18,
+                ),
+                SizedBox(width: compact ? 6 : 8),
+                Text(
+                  '$mm:$ss',
+                  style: AppFonts.bebasNeue(
+                    fontSize: fontSize,
+                    color: tint,
+                    letterSpacing: 2,
+                    shadows: <Shadow>[
+                      Shadow(
+                        color: tint.withValues(alpha: 0.55),
+                        blurRadius: 12,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
         ),
-        Text(
-          'ROLL · MOVE · SCORE',
-          style: TextStyle(
-            color: AppColors.muted,
-            letterSpacing: compact ? 2.4 : 3,
-            fontSize: subSize,
-            fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+}
+
+/// Subtle "MINI KICKERS" brand mark sitting next to the timer on
+/// non-compact screens. Hidden on compact (height < 520) to save
+/// vertical real estate for the panels.
+class _BrandWatermark extends StatelessWidget {
+  const _BrandWatermark();
+
+  @override
+  Widget build(final BuildContext context) {
+    return ShaderMask(
+      shaderCallback: (final Rect bounds) {
+        return LinearGradient(
+          colors: <Color>[
+            AppColors.accent.withValues(alpha: 0.85),
+            Colors.white.withValues(alpha: 0.95),
+            AppColors.accent.withValues(alpha: 0.85),
+          ],
+          stops: const <double>[0.0, 0.5, 1.0],
+        ).createShader(bounds);
+      },
+      child: Text(
+        'MINI KICKERS',
+        style: AppFonts.bebasNeue(
+          fontSize: 22,
+          letterSpacing: 3,
+          color: Colors.white,
+          shadows: <Shadow>[
+            Shadow(
+              color: AppColors.accent.withValues(alpha: 0.45),
+              blurRadius: 22,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Glassmorphic restart button on the right of the top bar. Triggers
+/// the [RestartConfirmDialog] before doing anything irreversible.
+class _RestartButton extends StatelessWidget {
+  const _RestartButton({required this.compact});
+
+  final bool compact;
+
+  @override
+  Widget build(final BuildContext context) {
+    final double iconSize = compact ? 14 : 18;
+    final double fontSize = compact ? 10 : 12;
+    final EdgeInsets pad = compact
+        ? const EdgeInsets.symmetric(horizontal: 10, vertical: 7)
+        : const EdgeInsets.symmetric(horizontal: 14, vertical: 10);
+    return GestureDetector(
+      onTap: () async {
+        AudioHelper.select();
+        final GameBloc bloc = context.read<GameBloc>();
+        final bool? confirmed = await showDialog<bool>(
+          context: context,
+          barrierColor: Colors.black87,
+          builder: (final BuildContext ctx) => const RestartConfirmDialog(),
+        );
+        if (confirmed != true) return;
+        Analytics.logGameRestarted();
+        // Mid-match restart interstitial — gated remotely, no-op when
+        // ads are off or no ad is loaded yet, so the user is never
+        // blocked by ad load latency.
+        await AdManager.instance.showRestartInterstitial();
+        bloc.add(const ResetGameEvent());
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            padding: pad,
+            decoration: BoxDecoration(
+              color: AppColors.brandYellow.withValues(alpha: 0.12),
+              border: Border.all(
+                color: AppColors.brandYellow.withValues(alpha: 0.5),
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  Icons.refresh_rounded,
+                  size: iconSize,
+                  color: AppColors.brandYellow,
+                ),
+                if (!compact) ...<Widget>[
+                  const SizedBox(width: 6),
+                  Text(
+                    'RESTART',
+                    style: TextStyle(
+                      color: AppColors.brandYellow,
+                      fontSize: fontSize,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
-      ],
+      ),
     );
   }
 }

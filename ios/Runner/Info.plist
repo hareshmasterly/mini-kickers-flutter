@@ -71,7 +71,7 @@
 	     production when the AdMob account is set up. Per-unit ids live
 	     in [AdManager]. -->
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<string>ca-app-pub-8449105731318025~6986269264</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>

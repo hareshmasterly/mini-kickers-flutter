@@ -65,13 +65,25 @@ class AdManager {
 
   // ── ID configuration ──────────────────────────────────────────────────
 
-  /// Master switch. When `true`, every ad call uses Google's public test
-  /// unit ids — safe to use during development; never flagged as fraud,
-  /// always fills. Flip to `false` when going live.
+  /// Master switch — auto-derived from build mode.
   ///
-  /// Can also be overridden at build time:
-  /// `flutter run --dart-define=USE_TEST_ADS=false`
-  static const bool _useTestIds = true;
+  /// • **Debug builds** (`flutter run`, `flutter build apk --debug`,
+  ///   `flutter build appbundle --debug`) → `true` → uses Google's
+  ///   public test unit ids. Safe for development; AdMob never flags
+  ///   test ids as fraud and they always fill.
+  /// • **Profile / Release builds** (`flutter build apk --release`,
+  ///   `flutter build appbundle --release`) → `false` → uses the real
+  ///   `_prod*` ids defined below.
+  ///
+  /// `kDebugMode` is a Flutter compile-time constant — the unused
+  /// branch is tree-shaken out of release builds, so the test ids
+  /// don't even ship in production binaries.
+  ///
+  /// **Even in release**, no ad request actually leaves the device
+  /// unless `SettingsService.instance.showAds` (the Firestore
+  /// `show_ads` flag) is also true — see [_preloadInterstitial] and
+  /// [BannerAdWidget._loadAd].
+  static const bool _useTestIds = kDebugMode;
 
   // ── Test ids (Google public, never flagged) ───────────────────────────
   // https://developers.google.com/admob/flutter/test-ads
@@ -94,29 +106,29 @@ class AdManager {
   static const String _prodSettingsBannerAndroid =
       'ca-app-pub-XXXXXXXXXXXXXXXX/SETTINGS_BANNER_ANDROID';
   static const String _prodSettingsBannerIOS =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/SETTINGS_BANNER_IOS';
+      'ca-app-pub-8449105731318025/6671408640';
   static const String _prodGuideBannerAndroid =
       'ca-app-pub-XXXXXXXXXXXXXXXX/GUIDE_BANNER_ANDROID';
   static const String _prodGuideBannerIOS =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/GUIDE_BANNER_IOS';
+      'ca-app-pub-8449105731318025/2732163637';
 
   // Interstitials
   static const String _prodNavInterstitialAndroid =
       'ca-app-pub-XXXXXXXXXXXXXXXX/NAV_INTERSTITIAL_ANDROID';
   static const String _prodNavInterstitialIOS =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/NAV_INTERSTITIAL_IOS';
+      'ca-app-pub-8449105731318025/2658028515';
   static const String _prodGoalInterstitialAndroid =
       'ca-app-pub-XXXXXXXXXXXXXXXX/GOAL_INTERSTITIAL_ANDROID';
   static const String _prodGoalInterstitialIOS =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/GOAL_INTERSTITIAL_IOS';
+      'ca-app-pub-8449105731318025/7792918627';
   static const String _prodPlayAgainInterstitialAndroid =
       'ca-app-pub-XXXXXXXXXXXXXXXX/PLAY_AGAIN_INTERSTITIAL_ANDROID';
   static const String _prodPlayAgainInterstitialIOS =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/PLAY_AGAIN_INTERSTITIAL_IOS';
+      'ca-app-pub-8449105731318025/9780787716';
   static const String _prodRestartInterstitialAndroid =
       'ca-app-pub-XXXXXXXXXXXXXXXX/RESTART_INTERSTITIAL_ANDROID';
   static const String _prodRestartInterstitialIOS =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/RESTART_INTERSTITIAL_IOS';
+      'ca-app-pub-8449105731318025/2306674726';
 
   /// Returns the AdMob unit id for the given placement. Honors
   /// [_useTestIds] (test mode collapses all banners → one test banner id
@@ -223,12 +235,49 @@ class AdManager {
 
     if (!_readyCompleter.isCompleted) _readyCompleter.complete();
 
-    // Warm up an interstitial for every slot so the first firing is
-    // instant. Each slot maintains its own cache + reload cycle. We
-    // preload regardless of remote toggles — if `show_ads` is later
-    // flipped on, we want an ad already in the chamber for every slot.
+    // React to remote `show_ads` flips during the session. The hard
+    // rule is: NO ad activity (load OR show) when show_ads is false.
+    //   • toggled ON  → preload every slot so the first firing is fast
+    //   • toggled OFF → dispose any cached/in-flight interstitials so
+    //                   nothing sits in memory or hits AdMob
+    SettingsService.instance.addListener(_onSettingsChanged);
+
+    // Initial preload — only if show_ads is currently true. If it's
+    // false (or false in cached remote config), we DON'T touch AdMob
+    // until/unless it flips on later.
+    _maybePreloadAllSlots();
+  }
+
+  void _onSettingsChanged() {
+    if (SettingsService.instance.showAds) {
+      _maybePreloadAllSlots();
+    } else {
+      _disposeAllCachedInterstitials();
+    }
+  }
+
+  /// Preloads every interstitial slot — but only when the master
+  /// `show_ads` flag is on. Idempotent: slots that are already loaded
+  /// or in-flight are skipped by [_preloadInterstitial].
+  void _maybePreloadAllSlots() {
+    if (!SettingsService.instance.showAds) return;
     for (final AdPlacement p in _interstitialPlacements) {
       _preloadInterstitial(p);
+    }
+  }
+
+  /// Releases the native AAB/IronSource ad object for every cached
+  /// interstitial. Called when `show_ads` flips OFF mid-session so we
+  /// don't keep ad inventory in memory we'll never display.
+  void _disposeAllCachedInterstitials() {
+    for (final AdPlacement p in _interstitials.keys.toList()) {
+      _interstitials[p]?.dispose();
+      _interstitials[p] = null;
+    }
+    if (kDebugMode) {
+      debugPrint(
+        'AdManager: disposed all cached interstitials (show_ads=false)',
+      );
     }
   }
 
@@ -239,6 +288,17 @@ class AdManager {
   // ── Interstitial pre-load + show ──────────────────────────────────────
 
   Future<void> _preloadInterstitial(final AdPlacement placement) async {
+    // Hard gate: NEVER hit AdMob when the master switch is off, even
+    // if a slot helper accidentally calls in here. This is the single
+    // point where every interstitial network request originates.
+    if (!SettingsService.instance.showAds) {
+      if (kDebugMode) {
+        debugPrint(
+          'AdManager: skipped preload of ${placement.name} — show_ads=false',
+        );
+      }
+      return;
+    }
     if (_loadingInterstitials[placement] == true) return;
     if (_interstitials[placement] != null) return;
     _loadingInterstitials[placement] = true;

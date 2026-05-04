@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -68,6 +69,13 @@ Future<void> main() async {
     }(),
   );
 
+  // Firebase Analytics — collection is RELEASE ONLY. Debug sessions
+  // would otherwise pollute the production GA4 property with dev
+  // events. The Analytics helper itself ([Analytics._log]) also
+  // short-circuits in debug, but disabling collection at the SDK
+  // level is the belt-and-braces guarantee.
+  await FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(kReleaseMode);
+
   if (kReleaseMode) {
     FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
     await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
@@ -76,6 +84,11 @@ Future<void> main() async {
           FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
           return true;
         };
+  } else {
+    // Symmetric explicit-off for Crashlytics in debug. Without this,
+    // a debug crash CAN still upload (depending on cached state) —
+    // setting it explicitly to false is the clean answer.
+    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(false);
   }
 
   // Boot AdMob (test or prod ids depending on the USE_TEST_ADS define).

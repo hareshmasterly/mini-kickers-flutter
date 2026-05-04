@@ -26,6 +26,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // App update prompt config (latest version, store URLs, popup
+    // copy). One document per environment is enough — the client uses
+    // a `limit(1)` query so the editor can keep Firestore's auto-id.
+    match /app_update_settings/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // Default deny — any future collection must add its own rule above.
     match /{document=**} {
       allow read, write: if false;

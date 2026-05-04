@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/utils/amazon_launcher.dart';
+import 'package:mini_kickers/utils/analytics_helper.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 
 class BuyAmazonButton extends StatefulWidget {
@@ -36,6 +37,7 @@ class _BuyAmazonButtonState extends State<BuyAmazonButton>
 
   Future<void> _onTap() async {
     AudioHelper.select();
+    Analytics.logAmazonTap(source: 'home_button');
     await AmazonLauncher.openProductPage();
   }
 
