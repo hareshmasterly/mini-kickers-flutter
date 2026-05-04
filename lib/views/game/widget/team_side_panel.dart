@@ -208,8 +208,8 @@ class _TeamStrip extends StatelessWidget {
 
   @override
   Widget build(final BuildContext context) {
-    final double width = compact ? 60 : (wide ? 110 : 80);
-    final double fontSize = compact ? 16 : (wide ? 28 : 22);
+    final double width = compact ? 60 : (wide ? 92 : 80);
+    final double fontSize = compact ? 16 : (wide ? 24 : 22);
     return Container(
       width: width,
       decoration: BoxDecoration(
@@ -273,8 +273,8 @@ class _ScoreBlock extends StatelessWidget {
 
   @override
   Widget build(final BuildContext context) {
-    final double width = compact ? 64 : (wide ? 130 : 90);
-    final double fontSize = compact ? 36 : (wide ? 78 : 56);
+    final double width = compact ? 64 : (wide ? 105 : 90);
+    final double fontSize = compact ? 36 : (wide ? 62 : 56);
     return Container(
       width: width,
       decoration: BoxDecoration(
@@ -373,9 +373,9 @@ class _LivePipState extends State<_LivePip>
 
   @override
   Widget build(final BuildContext context) {
-    final double width = widget.compact ? 38 : (widget.wide ? 64 : 48);
-    final double dotSize = widget.compact ? 8 : (widget.wide ? 12 : 10);
-    final double fontSize = widget.compact ? 8 : (widget.wide ? 11 : 9);
+    final double width = widget.compact ? 38 : (widget.wide ? 52 : 48);
+    final double dotSize = widget.compact ? 8 : (widget.wide ? 10 : 10);
+    final double fontSize = widget.compact ? 8 : (widget.wide ? 10 : 9);
     return Container(
       width: width,
       decoration: BoxDecoration(
@@ -498,8 +498,13 @@ class _DiceZone extends StatelessWidget {
   Widget build(final BuildContext context) {
     // The dice is sized to fit within the panel's "thickness" (the short
     // axis after rotation), leaving room for the caption underneath.
-    final double diceSize = (thickness * 0.62).clamp(46.0, 130.0);
-    final double captionFont = compact ? 9 : (wide ? 13 : 11);
+    // Dice cube size scales with panel thickness, but capped. 80 keeps
+    // the cube readable from across the table without stealing focus
+    // from the score / team strip on tablet. The clamp floor (46)
+    // prevents it from getting unreadable on the smallest landscape
+    // phones.
+    final double diceSize = (thickness * 0.62).clamp(46.0, 80.0);
+    final double captionFont = compact ? 9 : (wide ? 12 : 11);
     final double horizontalPad = compact ? 8 : 14;
 
     return Padding(

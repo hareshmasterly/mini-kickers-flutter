@@ -237,7 +237,13 @@ class _GameScreenState extends State<GameScreen> {
     // it appears as a vertical strip at the screen edge, with each
     // section running top→bottom from that player's viewpoint.
     final bool isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-    final double panelWidth = compact ? 84 : (isTablet ? 170 : 118);
+    // Tablet panel width: trimmed in steps from 170 → 130 → 110 for a
+    // slimmer, more board-focused look on iPad. At 110 the panel is
+    // only marginally wider than the phone tier (118), which is the
+    // right tradeoff — even on a 12.9" display the dice + score stay
+    // perfectly readable across the table while the board gets the
+    // overwhelming majority of the screen.
+    final double panelWidth = compact ? 84 : (isTablet ? 110 : 118);
     final double gap = compact ? 8 : 14;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
