@@ -85,23 +85,29 @@ class _GameScreenState extends State<GameScreen> {
                     (p.phase != GamePhase.coinToss &&
                         n.phase == GamePhase.coinToss),
             listener: (final BuildContext context, final GameState state) {
+              final GameBloc bloc = context.read<GameBloc>();
               // New match started — close any lingering promo card AND
-              // make sure the AI isn't left paused from a previous goal.
+              // make sure the AI / match timer aren't left paused from
+              // a previous goal.
               if (state.phase == GamePhase.coinToss) {
                 if (_showGoalAd) {
                   setState(() => _showGoalAd = false);
                 }
                 _aiController?.resume();
+                bloc.resumeTimer();
                 return;
               }
               if (state.showGoalFlash) {
                 _shakeController.shake();
-                // Pause the AI as soon as the goal flash starts so it
-                // doesn't sneak a roll in during the flash → ad gap.
-                // We resume in the appropriate branch below once the
-                // overlay (if any) is dismissed, or immediately if no
-                // overlay shows.
+                // Pause AI AND match timer the moment the goal flash
+                // starts. Two separate concerns:
+                //   • AI must not act behind an ad overlay.
+                //   • Match clock must not lose seconds while the user
+                //     is looking at an ad they didn't ask for.
+                // Resumed in the appropriate branch below once the
+                // overlay (if any) is dismissed.
                 _aiController?.pause();
+                bloc.pauseTimer();
                 return;
               }
               // Goal flash just ended.
@@ -112,22 +118,23 @@ class _GameScreenState extends State<GameScreen> {
               // [AdManager.shouldShowGoalInterstitial] and
               // [SettingsService.showAmazonAdOverlay].
               if (AdManager.instance.shouldShowGoalInterstitial()) {
-                // Already paused above. Resume the AI once the
-                // interstitial dismisses so it can finally take its
-                // turn on the freshly-reset board.
+                // Already paused above (AI + timer). Resume both once
+                // the interstitial dismisses.
                 AdManager.instance.showGoalInterstitial().then((final _) {
                   if (!mounted) return;
                   _aiController?.resume();
+                  bloc.resumeTimer();
                 });
               } else if (SettingsService.instance.showAmazonAdOverlay &&
                   !_showGoalAd) {
-                // Already paused. AI resumes inside the FirstGoalAdOverlay
-                // onDismiss callback below.
+                // Already paused. AI + timer resume inside the
+                // FirstGoalAdOverlay onDismiss callback below.
                 setState(() => _showGoalAd = true);
               } else {
-                // No overlay → resume immediately so the AI doesn't
-                // stay paused for the rest of the match.
+                // No overlay → resume immediately so neither stays
+                // stuck paused for the rest of the match.
                 _aiController?.resume();
+                bloc.resumeTimer();
               }
             },
             builder: (final BuildContext context, final GameState state) {
@@ -155,8 +162,10 @@ class _GameScreenState extends State<GameScreen> {
                         if (!mounted) return;
                         setState(() => _showGoalAd = false);
                         // Overlay gone → safe for the AI to resume its
-                        // turn on the now-visible board.
+                        // turn AND for the match clock to start
+                        // counting again.
                         _aiController?.resume();
+                        context.read<GameBloc>().resumeTimer();
                       },
                     ),
                 ],

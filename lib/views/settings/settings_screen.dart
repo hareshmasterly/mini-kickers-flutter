@@ -10,6 +10,7 @@ import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/flavors.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:mini_kickers/views/ads/banner_ad_widget.dart';
 import 'package:mini_kickers/views/home/widget/stadium_background.dart';
 import 'package:mini_kickers/views/settings/widget/palette_picker.dart';
@@ -26,10 +27,30 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final SettingsService _settings = SettingsService.instance;
 
+  /// App version pulled at runtime from native package metadata
+  /// (`package_info_plus`). Replaces the previously-hardcoded "1.0.0"
+  /// string so this line never goes stale when the pubspec version
+  /// is bumped for a release. Format: `<versionName> (<buildNumber>)`,
+  /// e.g. `1.0.1 (5)`. `null` while the async fetch is in flight.
+  String? _appVersion;
+
   @override
   void initState() {
     super.initState();
     _settings.addListener(_onSettingsChanged);
+    _loadAppVersion();
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final PackageInfo info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() {
+        _appVersion = '${info.version} (${info.buildNumber})';
+      });
+    } catch (_) {
+      // Non-fatal — the version line will just show "—" instead.
+    }
   }
 
   @override
@@ -183,7 +204,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.info_outline_rounded,
                     title: 'About',
                     subtitle:
-                        'Version 1.0.0 · Flavor: $currentFlavor · ${FlavorConfig.title}',
+                        'Version ${_appVersion ?? '—'} · Flavor: $currentFlavor · ${FlavorConfig.title}',
                     iconColor: AppColors.muted,
                     onTap: () {},
                   ),

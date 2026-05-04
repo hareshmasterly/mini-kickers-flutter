@@ -27,7 +27,13 @@ class AudioHelper {
 
   static AudioPlayer? _musicPlayer;
   static bool _musicPlaying = false;
-
+  /// True when [stopMusic] paused the loop (so the next [startMusic]
+  /// can resume from the same position rather than restarting the
+  /// asset from the beginning — much smoother on rapid toggles).
+  static bool _musicPaused = false;
+  /// Target volume the fade-in animates toward. Tuned for "soft
+  /// background" — quiet enough that commentary + SFX stay foreground.
+  static const double _musicTargetVolume = 0.30;
   static const String _assetPrefix = 'sounds/';
 
   // ── Vibration capability cache ──
@@ -213,11 +219,45 @@ class AudioHelper {
     if (!SettingsService.instance.musicEnabled) return;
     _musicPlayer ??= AudioPlayer();
     try {
+      // Audio context — controls how this player interacts with the
+      // OS audio system. `playback` (NOT `ambient`) plays even when
+      // the iOS mute switch is on. The user expectation when they
+      // toggle "Background Music ON" is that it plays unconditionally;
+      // requiring them to also flip the side switch to hear it is
+      // confusing. `mixWithOthers` keeps Spotify / podcasts running
+      // alongside.
+      await _musicPlayer!.setAudioContext(
+        AudioContext(
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playback,
+            options: const <AVAudioSessionOptions>{
+              AVAudioSessionOptions.mixWithOthers,
+            },
+          ),
+          android: const AudioContextAndroid(
+            contentType: AndroidContentType.music,
+            usageType: AndroidUsageType.media,
+            audioFocus: AndroidAudioFocus.gain,
+          ),
+        ),
+      );
       await _musicPlayer!.setReleaseMode(ReleaseMode.loop);
-      await _musicPlayer!.setVolume(0.45);
-      await _musicPlayer!
-          .play(AssetSource('${_assetPrefix}stadium_ambient.mp3'));
+      // Set volume directly to target. Earlier we tried fade-in from
+      // 0 → target via an unawaited timer loop, but on some devices
+      // the player ended up "stuck silent" if the audio session took
+      // an extra beat to activate before the fade ticks ran. Direct
+      // assignment is rock-solid and 0.30 is already soft enough for
+      // a background loop that nobody will mistake for a startle.
+      await _musicPlayer!.setVolume(_musicTargetVolume);
+      if (_musicPaused) {
+        await _musicPlayer!.resume();
+      } else {
+        await _musicPlayer!
+            .play(AssetSource('${_assetPrefix}background_music.mp3'));
+      }
       _musicPlaying = true;
+      _musicPaused = false;
+      if (kDebugMode) debugPrint('AudioHelper: music started');
     } catch (e) {
       if (kDebugMode) debugPrint('AudioHelper: music failed ($e)');
     }
@@ -225,10 +265,15 @@ class AudioHelper {
 
   static Future<void> stopMusic() async {
     if (!_musicPlaying) return;
-    try {
-      await _musicPlayer?.stop();
-    } catch (_) {}
     _musicPlaying = false;
+    // Pause (not stop) so the next startMusic() resumes from the same
+    // position — avoids the "track restarts from the top" feel on
+    // every toggle. No fade-out: a hard pause is responsive and
+    // matches the user expectation that "OFF means silent NOW".
+    try {
+      await _musicPlayer?.pause();
+      _musicPaused = true;
+    } catch (_) {}
   }
 
   static Future<void> setMusicEnabled({required final bool enabled}) async {
@@ -247,6 +292,7 @@ class AudioHelper {
     await _musicPlayer?.dispose();
     _musicPlayer = null;
     _musicPlaying = false;
+    _musicPaused = false;
     _initialized = false;
   }
 }
