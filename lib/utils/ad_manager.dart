@@ -104,29 +104,29 @@ class AdManager {
 
   // Banners
   static const String _prodSettingsBannerAndroid =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/SETTINGS_BANNER_ANDROID';
+      'ca-app-pub-8449105731318025/5116433211';
   static const String _prodSettingsBannerIOS =
       'ca-app-pub-8449105731318025/6671408640';
   static const String _prodGuideBannerAndroid =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/GUIDE_BANNER_ANDROID';
+      'ca-app-pub-8449105731318025/9916274269';
   static const String _prodGuideBannerIOS =
       'ca-app-pub-8449105731318025/2732163637';
 
   // Interstitials
   static const String _prodNavInterstitialAndroid =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/NAV_INTERSTITIAL_ANDROID';
+      'ca-app-pub-8449105731318025/5970349882';
   static const String _prodNavInterstitialIOS =
       'ca-app-pub-8449105731318025/2658028515';
   static const String _prodGoalInterstitialAndroid =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/GOAL_INTERSTITIAL_ANDROID';
+      'ca-app-pub-8449105731318025/1312919577';
   static const String _prodGoalInterstitialIOS =
       'ca-app-pub-8449105731318025/7792918627';
   static const String _prodPlayAgainInterstitialAndroid =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/PLAY_AGAIN_INTERSTITIAL_ANDROID';
+      'ca-app-pub-8449105731318025/7686756233';
   static const String _prodPlayAgainInterstitialIOS =
       'ca-app-pub-8449105731318025/9780787716';
   static const String _prodRestartInterstitialAndroid =
-      'ca-app-pub-XXXXXXXXXXXXXXXX/RESTART_INTERSTITIAL_ANDROID';
+      'ca-app-pub-8449105731318025/7036019542';
   static const String _prodRestartInterstitialIOS =
       'ca-app-pub-8449105731318025/2306674726';
 
