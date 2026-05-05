@@ -2,17 +2,15 @@ import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mini_kickers/bloc/game/game_bloc.dart';
+import 'package:mini_kickers/data/services/app_update_service.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/routes/routes_name.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
-import 'package:mini_kickers/data/services/app_update_service.dart';
 import 'package:mini_kickers/utils/analytics_helper.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/responsive.dart';
-import 'package:mini_kickers/views/home/widget/update_dialog.dart';
 import 'package:mini_kickers/views/game/game_screen.dart';
 import 'package:mini_kickers/views/home/widget/animated_title.dart';
 import 'package:mini_kickers/views/home/widget/buy_amazon_button.dart';
@@ -20,6 +18,7 @@ import 'package:mini_kickers/views/home/widget/glass_action_card.dart';
 import 'package:mini_kickers/views/home/widget/hero_showcase.dart';
 import 'package:mini_kickers/views/home/widget/premium_play_button.dart';
 import 'package:mini_kickers/views/home/widget/stadium_background.dart';
+import 'package:mini_kickers/views/home/widget/update_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -60,8 +59,8 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((final _) {
       Future<void>.delayed(const Duration(milliseconds: 600), () async {
         if (!mounted) return;
-        final UpdateCheckResult result =
-            await AppUpdateService.instance.check();
+        final UpdateCheckResult result = await AppUpdateService.instance
+            .check();
         if (!mounted || !result.shouldShow) return;
         await showUpdateDialog(context, result: result);
       });
@@ -83,28 +82,31 @@ class _HomeScreenState extends State<HomeScreen>
         transitionDuration: const Duration(milliseconds: 700),
         reverseTransitionDuration: const Duration(milliseconds: 500),
         settings: const RouteSettings(name: RouteName.gameScreen),
-        pageBuilder: (
-          final BuildContext context,
-          final Animation<double> a,
-          final Animation<double> b,
-        ) =>
-            const GameScreen(),
-        transitionsBuilder: (
-          final BuildContext context,
-          final Animation<double> a,
-          final Animation<double> b,
-          final Widget child,
-        ) {
-          final Animation<double> curved =
-              CurvedAnimation(parent: a, curve: Curves.easeOutCubic);
-          return FadeTransition(
-            opacity: curved,
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 1.18, end: 1.0).animate(curved),
-              child: child,
-            ),
-          );
-        },
+        pageBuilder:
+            (
+              final BuildContext context,
+              final Animation<double> a,
+              final Animation<double> b,
+            ) => const GameScreen(),
+        transitionsBuilder:
+            (
+              final BuildContext context,
+              final Animation<double> a,
+              final Animation<double> b,
+              final Widget child,
+            ) {
+              final Animation<double> curved = CurvedAnimation(
+                parent: a,
+                curve: Curves.easeOutCubic,
+              );
+              return FadeTransition(
+                opacity: curved,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 1.18, end: 1.0).animate(curved),
+                  child: child,
+                ),
+              );
+            },
       ),
     );
   }
@@ -169,10 +171,18 @@ class _HomeScreenState extends State<HomeScreen>
                   ? Icons.volume_up_rounded
                   : Icons.volume_off_rounded,
               onTap: () {
-                final bool newValue =
-                    !SettingsService.instance.soundEnabled;
+                final bool newValue = !SettingsService.instance.soundEnabled;
                 SettingsService.instance.setSoundEnabled(newValue);
-                if (newValue) AudioHelper.select();
+                // Single home-screen audio toggle controls both SFX and
+                // background music — users expect one "mute everything"
+                // button here, with finer-grained control in Settings.
+                SettingsService.instance.setMusicEnabled(newValue);
+                if (newValue) {
+                  AudioHelper.select();
+                  AudioHelper.startMusic();
+                } else {
+                  AudioHelper.stopMusic();
+                }
                 setState(() {});
               },
             ),
@@ -182,8 +192,7 @@ class _HomeScreenState extends State<HomeScreen>
               onTap: () async {
                 AudioHelper.select();
                 final GameBloc bloc = context.read<GameBloc>();
-                await Navigator.of(context)
-                    .pushNamed(RouteName.settingsScreen);
+                await Navigator.of(context).pushNamed(RouteName.settingsScreen);
                 if (!mounted) return;
                 // Apply any setting changes (match duration, music, etc.) live
                 bloc.add(const RefreshSettingsEvent());
@@ -227,40 +236,40 @@ class _HomeScreenState extends State<HomeScreen>
         final double titleFont = ultraShort
             ? 24
             : short
-                ? 32
-                : isTablet
-                    ? 96
-                    : (size.width < 360 ? 38 : 52);
+            ? 32
+            : isTablet
+            ? 96
+            : (size.width < 360 ? 38 : 52);
         final double playButtonWidth = ultraShort
             ? 220
             : short
-                ? 260
-                : isTablet
-                    ? 400
-                    : 340;
+            ? 260
+            : isTablet
+            ? 400
+            : 340;
         // Larger gaps on iPad — the content fills more vertical space
         // and stops feeling like a small island in a big screen.
         final double gapAfterTitle = ultraShort
             ? 8
             : short
-                ? 14
-                : isTablet
-                    ? 48
-                    : 30;
+            ? 14
+            : isTablet
+            ? 48
+            : 30;
         final double gapAfterButton = ultraShort
             ? 8
             : short
-                ? 12
-                : isTablet
-                    ? 38
-                    : 24;
+            ? 12
+            : isTablet
+            ? 38
+            : 24;
         final double midGap = ultraShort
             ? 12
             : short
-                ? 16
-                : isTablet
-                    ? 36
-                    : 24;
+            ? 16
+            : isTablet
+            ? 36
+            : 24;
 
         return Row(
           children: <Widget>[
@@ -268,26 +277,29 @@ class _HomeScreenState extends State<HomeScreen>
             Expanded(
               flex: 5,
               child: LayoutBuilder(
-                builder: (
-                  final BuildContext heroCtx,
-                  final BoxConstraints heroCons,
-                ) {
-                  final double maxByW = heroCons.maxWidth / 2.4;
-                  final double maxByH = heroCons.maxHeight / 2.04;
-                  // Cap at 180 to match the original tablet hero size
-                  // — bigger looks bloated on iPad's portrait flex slot.
-                  final double diceSize =
-                      min(maxByW, maxByH).clamp(60.0, 180.0);
-                  return Center(
-                    child: Opacity(
-                      opacity: t2,
-                      child: Transform.scale(
-                        scale: 0.85 + t2 * 0.15,
-                        child: HeroShowcase(diceSize: diceSize),
-                      ),
-                    ),
-                  );
-                },
+                builder:
+                    (
+                      final BuildContext heroCtx,
+                      final BoxConstraints heroCons,
+                    ) {
+                      final double maxByW = heroCons.maxWidth / 2.4;
+                      final double maxByH = heroCons.maxHeight / 2.04;
+                      // Cap at 180 to match the original tablet hero size
+                      // — bigger looks bloated on iPad's portrait flex slot.
+                      final double diceSize = min(
+                        maxByW,
+                        maxByH,
+                      ).clamp(60.0, 180.0);
+                      return Center(
+                        child: Opacity(
+                          opacity: t2,
+                          child: Transform.scale(
+                            scale: 0.85 + t2 * 0.15,
+                            child: HeroShowcase(diceSize: diceSize),
+                          ),
+                        ),
+                      );
+                    },
               ),
             ),
             SizedBox(width: midGap),
@@ -341,8 +353,7 @@ class _HomeScreenState extends State<HomeScreen>
           icon: Icons.menu_book_rounded,
           label: 'GAME\nGUIDE',
           compact: compact,
-          onTap: () =>
-              Navigator.of(context).pushNamed(RouteName.guideScreen),
+          onTap: () => Navigator.of(context).pushNamed(RouteName.guideScreen),
         ),
         SizedBox(width: spacing),
         GlassActionCard(
@@ -350,8 +361,7 @@ class _HomeScreenState extends State<HomeScreen>
           label: 'MULTI-\nPLAYER',
           locked: true,
           compact: compact,
-          onTap: ()  {
-          },
+          onTap: () {},
         ),
         SizedBox(width: spacing),
         GlassActionCard(
@@ -384,6 +394,7 @@ class _HomeScreenState extends State<HomeScreen>
 
 class _CircleIconButton extends StatelessWidget {
   const _CircleIconButton({required this.icon, required this.onTap});
+
   final IconData icon;
   final VoidCallback onTap;
 
@@ -409,4 +420,3 @@ class _CircleIconButton extends StatelessWidget {
     );
   }
 }
-
