@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mini_kickers/data/models/remote_avatar.dart';
 import 'package:mini_kickers/data/services/avatar_service.dart';
 import 'package:mini_kickers/data/services/user_service.dart';
@@ -9,6 +11,7 @@ import 'package:mini_kickers/theme/app_colors.dart';
 import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/handle_generator.dart';
+import 'package:mini_kickers/utils/profanity_filter.dart';
 
 /// First-launch welcome dialog. Shown automatically by [HomeScreen]
 /// when [UserService.isFirstLaunch] is true. Non-dismissible (no
@@ -45,7 +48,10 @@ class _WelcomeCardState extends State<_WelcomeCard>
     with TickerProviderStateMixin {
   late final AnimationController _entry;
   late final AnimationController _avatarBounce;
+  late final TextEditingController _nameController;
+  Timer? _nameDebounce;
   bool _saving = false;
+  bool _nameProfane = false;
 
   @override
   void initState() {
@@ -58,13 +64,45 @@ class _WelcomeCardState extends State<_WelcomeCard>
       vsync: this,
       duration: const Duration(milliseconds: 1800),
     )..repeat(reverse: true);
+    _nameController = TextEditingController();
   }
 
   @override
   void dispose() {
     _entry.dispose();
     _avatarBounce.dispose();
+    _nameDebounce?.cancel();
+    _nameController.dispose();
     super.dispose();
+  }
+
+  /// Debounced name handler — regenerates the pending handle from
+  /// the typed name 250 ms after the user stops typing. Empty / all-
+  /// non-letter input falls back to the original random handle so
+  /// the user is never left with a blank pending state.
+  void _onNameChanged(final String raw) {
+    _nameDebounce?.cancel();
+    final String trimmed = raw.trim();
+
+    // Profanity check is instant — no debounce — so the warning
+    // appears the moment the user types a banned word.
+    final bool profane =
+        trimmed.isNotEmpty && ProfanityFilter.isBlocked(trimmed);
+    if (profane != _nameProfane) {
+      setState(() => _nameProfane = profane);
+    }
+    if (profane) return;
+
+    _nameDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      if (trimmed.isEmpty) {
+        // Restore a random handle (fully decoupled — adjective + role,
+        // not animal-coupled).
+        UserService.instance.reroll();
+      } else {
+        UserService.instance.setPendingFromName(trimmed);
+      }
+    });
   }
 
   Future<void> _onConfirm() async {
@@ -86,24 +124,46 @@ class _WelcomeCardState extends State<_WelcomeCard>
   void _onReroll() {
     if (_saving) return;
     AudioHelper.select();
-    UserService.instance.reroll();
+    // If the user has typed a name, just refresh the number suffix —
+    // they keep their name + avatar but get a different "Aarav847" →
+    // "Aarav231". If the field is empty, a full random reroll fires.
+    final String trimmed = _nameController.text.trim();
+    if (trimmed.isNotEmpty && !_nameProfane) {
+      UserService.instance.rerollNumber();
+    } else {
+      UserService.instance.reroll();
+    }
   }
 
   @override
   Widget build(final BuildContext context) {
-    final bool isTablet =
-        MediaQuery.of(context).size.shortestSide >= 600;
-    final double maxWidth = isTablet ? 520 : 380;
+    final Size screen = MediaQuery.of(context).size;
+    final bool isTablet = screen.shortestSide >= 600;
+    // Compact = small landscape phones (h < 460). Without this third
+    // tier the same dimensions used on a 6.7" phone get applied to a
+    // 5.4" landscape phone and the card overflows by ~24 px.
+    final bool compact = !isTablet && screen.height < 460;
+    final double maxWidth = isTablet ? 520 : (compact ? 360 : 380);
     final EdgeInsets cardPad = isTablet
         ? const EdgeInsets.fromLTRB(36, 32, 36, 26)
-        : const EdgeInsets.fromLTRB(26, 24, 26, 20);
-    final double avatarSize = isTablet ? 96 : 72;
-    final double headlineFont = isTablet ? 16 : 13;
-    final double handleFont = isTablet ? 38 : 28;
-    final double subtitleFont = isTablet ? 14 : 12;
-    final double btnVPad = isTablet ? 16 : 13;
-    final double primaryBtnFont = isTablet ? 17 : 14;
-    final double secondaryFont = isTablet ? 13 : 11;
+        : compact
+            ? const EdgeInsets.fromLTRB(22, 16, 22, 14)
+            : const EdgeInsets.fromLTRB(26, 24, 26, 20);
+    final double avatarSize = isTablet ? 96 : (compact ? 56 : 72);
+    final double headlineFont = isTablet ? 16 : (compact ? 11 : 13);
+    final double handleFont = isTablet ? 38 : (compact ? 22 : 28);
+    final double subtitleFont = isTablet ? 14 : (compact ? 10 : 12);
+    final double btnVPad = isTablet ? 16 : (compact ? 10 : 13);
+    final double primaryBtnFont = isTablet ? 17 : (compact ? 13 : 14);
+    final double secondaryFont = isTablet ? 13 : (compact ? 10 : 11);
+    // Inter-element gaps. Trim aggressively on compact so the card
+    // fits on iPhone SE landscape (h=375).
+    final double gapAfterAvatar = compact ? 8 : 16;
+    final double gapAfterHeadline = compact ? 4 : 6;
+    final double gapAfterHandle = compact ? 8 : 12;
+    final double gapAfterPicker = compact ? 4 : 8;
+    final double gapBeforeButton = compact ? 12 : 18;
+    final double gapBeforeReroll = compact ? 2 : 6;
 
     return PopScope<dynamic>(
       // Force user to commit — no back-button escape. Welcome card is
@@ -173,65 +233,79 @@ class _WelcomeCardState extends State<_WelcomeCard>
                       // whenever UserService notifies (handle re-rolled,
                       // avatar tapped) so the big avatar + handle text +
                       // selected picker tile all stay in sync.
+                      //
+                      // SingleChildScrollView wraps the Column so any
+                      // remaining overflow on extreme aspect ratios
+                      // (very short landscape phones) scrolls instead
+                      // of throwing a RenderFlex error. The Column
+                      // still uses mainAxisSize.min so the card sizes
+                      // to its content when it fits.
                       child: ListenableBuilder(
                         listenable: UserService.instance,
                         builder:
                             (final BuildContext context, final Widget? _) {
-                          return Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              _buildAvatar(avatarSize),
-                              const SizedBox(height: 16),
-                              Text(
-                                "👋 YOU'LL PLAY AS",
-                                style: TextStyle(
-                                  color:
-                                      Colors.white.withValues(alpha: 0.65),
-                                  fontSize: headlineFont,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 2,
+                          return SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                _buildAvatar(avatarSize),
+                                SizedBox(height: gapAfterAvatar),
+                                _buildNameInput(
+                                  compact: compact,
+                                  isTablet: isTablet,
                                 ),
-                              ),
-                              const SizedBox(height: 6),
-                              _buildHandleText(handleFont),
-                              const SizedBox(height: 12),
-                              _buildAvatarPicker(isTablet: isTablet),
-                              const SizedBox(height: 8),
-                              Text(
-                                'You can change this later in Settings.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color:
-                                      Colors.white.withValues(alpha: 0.55),
-                                  fontSize: subtitleFont,
-                                ),
-                              ),
-                              const SizedBox(height: 18),
-                              _buildPrimaryButton(
-                                primaryBtnFont,
-                                btnVPad,
-                              ),
-                              const SizedBox(height: 6),
-                              TextButton.icon(
-                                onPressed: _saving ? null : _onReroll,
-                                icon: const Icon(
-                                  Icons.refresh_rounded,
-                                  size: 16,
-                                ),
-                                style: TextButton.styleFrom(
-                                  foregroundColor:
-                                      Colors.white.withValues(alpha: 0.7),
-                                ),
-                                label: Text(
-                                  'PICK ANOTHER NAME',
+                                SizedBox(height: gapAfterHeadline),
+                                Text(
+                                  "👋 YOU'LL PLAY AS",
                                   style: TextStyle(
-                                    fontSize: secondaryFont,
+                                    color:
+                                        Colors.white.withValues(alpha: 0.65),
+                                    fontSize: headlineFont,
                                     fontWeight: FontWeight.w800,
-                                    letterSpacing: 1.4,
+                                    letterSpacing: 2,
                                   ),
                                 ),
-                              ),
-                            ],
+                                SizedBox(height: gapAfterHeadline),
+                                _buildHandleText(handleFont),
+                                SizedBox(height: gapAfterHandle),
+                                _buildAvatarPicker(isTablet: isTablet),
+                                SizedBox(height: gapAfterPicker),
+                                Text(
+                                  'You can change this later in Settings.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color:
+                                        Colors.white.withValues(alpha: 0.55),
+                                    fontSize: subtitleFont,
+                                  ),
+                                ),
+                                SizedBox(height: gapBeforeButton),
+                                _buildPrimaryButton(
+                                  primaryBtnFont,
+                                  btnVPad,
+                                ),
+                                SizedBox(height: gapBeforeReroll),
+                                TextButton.icon(
+                                  onPressed: _saving ? null : _onReroll,
+                                  icon: const Icon(
+                                    Icons.refresh_rounded,
+                                    size: 16,
+                                  ),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor:
+                                        Colors.white.withValues(alpha: 0.7),
+                                  ),
+                                  label: Text(
+                                    'PICK ANOTHER NAME',
+                                    style: TextStyle(
+                                      fontSize: secondaryFont,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 1.4,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           );
                         },
                       ),
@@ -291,6 +365,106 @@ class _WelcomeCardState extends State<_WelcomeCard>
           ),
         );
       },
+    );
+  }
+
+  /// Optional first-name input. Typing here drives the live handle
+  /// preview (debounced) — empty input falls back to a random
+  /// adjective+role handle. Filtered to letters only so the handle
+  /// generator never has to defend against weird input.
+  Widget _buildNameInput({
+    required final bool compact,
+    required final bool isTablet,
+  }) {
+    final double labelFont = compact ? 10 : (isTablet ? 13 : 11);
+    final double fieldFont = compact ? 14 : (isTablet ? 17 : 15);
+    final double helperFont = compact ? 9 : (isTablet ? 11 : 10);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
+          'TYPE YOUR NAME (OPTIONAL)',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.55),
+            fontSize: labelFont,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 2,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _nameController,
+          textCapitalization: TextCapitalization.words,
+          textAlign: TextAlign.center,
+          textInputAction: TextInputAction.done,
+          maxLength: 12,
+          inputFormatters: <TextInputFormatter>[
+            // Letters only — no spaces, no digits, no emojis. Keeps
+            // the generated handle clean ("Aarav847" not "AaravX!42").
+            FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z]')),
+            LengthLimitingTextInputFormatter(12),
+          ],
+          onChanged: _onNameChanged,
+          onTapOutside: (final _) => FocusScope.of(context).unfocus(),
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: fieldFont,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.4,
+          ),
+          cursorColor: AppColors.brandYellow,
+          decoration: InputDecoration(
+            counterText: '',
+            isDense: true,
+            hintText: 'e.g. Aarav',
+            hintStyle: TextStyle(
+              color: Colors.white.withValues(alpha: 0.3),
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.2,
+            ),
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.06),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide:
+                  BorderSide(color: Colors.white.withValues(alpha: 0.18)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                color: _nameProfane
+                    ? AppColors.brandRed.withValues(alpha: 0.7)
+                    : Colors.white.withValues(alpha: 0.18),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                color: _nameProfane
+                    ? AppColors.brandRed
+                    : AppColors.brandYellow.withValues(alpha: 0.7),
+                width: 1.5,
+              ),
+            ),
+          ),
+        ),
+        if (_nameProfane) ...<Widget>[
+          const SizedBox(height: 4),
+          Text(
+            'Try a different name',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.brandRed.withValues(alpha: 0.85),
+              fontSize: helperFont,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ],
     );
   }
 

@@ -7,6 +7,7 @@ import 'package:mini_kickers/data/models/ai_difficulty_option.dart';
 import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/models/remote_app_settings.dart';
 import 'package:mini_kickers/data/models/team_palette.dart';
+import 'package:mini_kickers/data/services/user_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Persistent user settings.
@@ -27,7 +28,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Setters always promote a setting to "user override" — once a user has
 /// chosen a value, remote defaults stop affecting them for that key.
 class SettingsService extends ChangeNotifier {
-  SettingsService._();
+  SettingsService._() {
+    // Forward UserService changes (handle change, profile load) so
+    // listeners of SettingsService re-evaluate any derived getters
+    // that fall through to the profile — currently [redName].
+    // Without this, the coin-toss team chip wouldn't update when the
+    // user changes their handle from the profile screen mid-session.
+    UserService.instance.addListener(notifyListeners);
+  }
 
   static final SettingsService instance = SettingsService._();
 
@@ -143,8 +151,26 @@ class SettingsService extends ChangeNotifier {
     return '${m}m ${s}s';
   }
 
+  /// Resolution order:
+  ///   1. **User override** — manually set in the coin-toss "Edit
+  ///      Teams" dialog (e.g. typing "BHOOMI" because they're playing
+  ///      pass-and-play with a sibling).
+  ///   2. **Signed-in user's profile name** — the `displayName` from
+  ///      [UserService.profile], uppercased to match the all-caps
+  ///      stadium typography of the rest of the app. This is the
+  ///      common case: a returning user sees their handle as Red.
+  ///   3. Remote `team_name.player1` default.
+  ///   4. Hardcoded "RED".
+  ///
+  /// Blue intentionally has no profile fallback — in pass-and-play
+  /// Blue is the *opponent* (not the device owner), and in VS AI mode
+  /// Blue is the bot (handled by [displayBlueName]).
   String get redName {
     if (_redNameUserSet) return _redName;
+    final String? profileName = UserService.instance.profile?.displayName;
+    if (profileName != null && profileName.isNotEmpty) {
+      return profileName.toUpperCase();
+    }
     return _remote?.player1Name ?? _fallbackRedName;
   }
 

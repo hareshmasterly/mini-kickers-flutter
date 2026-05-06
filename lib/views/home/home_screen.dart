@@ -13,6 +13,7 @@ import 'package:mini_kickers/data/services/app_update_service.dart';
 import 'package:mini_kickers/data/services/user_service.dart';
 import 'package:mini_kickers/utils/analytics_helper.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
+import 'package:mini_kickers/utils/handle_generator.dart';
 import 'package:mini_kickers/utils/responsive.dart';
 import 'package:mini_kickers/views/home/widget/update_dialog.dart';
 import 'package:mini_kickers/views/game/game_screen.dart';
@@ -22,6 +23,7 @@ import 'package:mini_kickers/views/home/widget/difficulty_picker_dialog.dart';
 import 'package:mini_kickers/views/home/widget/glass_action_card.dart';
 import 'package:mini_kickers/views/home/widget/hero_showcase.dart';
 import 'package:mini_kickers/views/home/widget/mode_card.dart';
+import 'package:mini_kickers/views/home/widget/signed_in_toast.dart';
 import 'package:mini_kickers/views/home/widget/stadium_background.dart';
 import 'package:mini_kickers/views/home/widget/welcome_card.dart';
 
@@ -73,6 +75,20 @@ class _HomeScreenState extends State<HomeScreen>
         await showWelcomeCard(context);
       }
       if (!mounted) return;
+
+      // 1b. "Signed in as <handle>" toast — fires for returning users
+      //     on every home-mount. Skipped for first-launch users since
+      //     the welcome card already covers their identity moment.
+      //     Tiny pause first so it doesn't fight the entry animation.
+      if (UserService.instance.profile != null) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        if (!mounted) return;
+        showSignedInToast(
+          context,
+          handle: UserService.instance.profile!.handle,
+          avatarId: UserService.instance.profile!.avatarId,
+        );
+      }
 
       // 2. Update check.
       Future<void>.delayed(const Duration(milliseconds: 400), () async {
@@ -206,36 +222,61 @@ class _HomeScreenState extends State<HomeScreen>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: <Widget>[
-            _CircleIconButton(
-              icon: SettingsService.instance.soundEnabled
-                  ? Icons.volume_up_rounded
-                  : Icons.volume_off_rounded,
-              onTap: () {
-                final bool newValue =
-                    !SettingsService.instance.soundEnabled;
-                SettingsService.instance.setSoundEnabled(newValue);
-                if (newValue) AudioHelper.select();
-                setState(() {});
+            // ── Left: profile avatar ──
+            // Tappable circular avatar that opens the profile screen.
+            // ListenableBuilder so the emoji + colour reflect changes
+            // made in profile (avatar swap) without a manual refresh.
+            ListenableBuilder(
+              listenable: UserService.instance,
+              builder: (final BuildContext context, final Widget? _) {
+                return _ProfileAvatarButton(
+                  onTap: () async {
+                    AudioHelper.select();
+                    await Navigator.of(context)
+                        .pushNamed(RouteName.profileScreen);
+                    if (!mounted) return;
+                    setState(() {});
+                  },
+                );
               },
             ),
             BuyAmazonButton(compact: compact),
-            _CircleIconButton(
-              icon: Icons.settings_rounded,
-              onTap: () async {
-                AudioHelper.select();
-                final GameBloc bloc = context.read<GameBloc>();
-                await Navigator.of(context)
-                    .pushNamed(RouteName.settingsScreen);
-                if (!mounted) return;
-                // Apply any setting changes (match duration, music, etc.) live
-                bloc.add(const RefreshSettingsEvent());
-                if (SettingsService.instance.musicEnabled) {
-                  AudioHelper.startMusic();
-                } else {
-                  AudioHelper.stopMusic();
-                }
-                setState(() {});
-              },
+            // ── Right: sound + settings cluster ──
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _CircleIconButton(
+                  icon: SettingsService.instance.soundEnabled
+                      ? Icons.volume_up_rounded
+                      : Icons.volume_off_rounded,
+                  onTap: () {
+                    final bool newValue =
+                        !SettingsService.instance.soundEnabled;
+                    SettingsService.instance.setSoundEnabled(newValue);
+                    if (newValue) AudioHelper.select();
+                    setState(() {});
+                  },
+                ),
+                const SizedBox(width: 8),
+                _CircleIconButton(
+                  icon: Icons.settings_rounded,
+                  onTap: () async {
+                    AudioHelper.select();
+                    final GameBloc bloc = context.read<GameBloc>();
+                    await Navigator.of(context)
+                        .pushNamed(RouteName.settingsScreen);
+                    if (!mounted) return;
+                    // Apply any setting changes (match duration, music, etc.) live
+                    bloc.add(const RefreshSettingsEvent());
+                    if (SettingsService.instance.musicEnabled) {
+                      AudioHelper.startMusic();
+                    } else {
+                      AudioHelper.stopMusic();
+                    }
+                    setState(() {});
+                  },
+                ),
+              ],
             ),
           ],
         ),
@@ -468,19 +509,15 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  /// Bottom action row — secondary actions only. The previous "VS AI"
-  /// entry moved up to a primary [ModeCard]; "ONLINE" lives here
-  /// alongside the GUIDE and is gated by [_canPlayOnline] (true once
-  /// the user has finished the welcome-card flow + a profile exists).
+  /// Bottom action row — secondary actions only.
   ///
-  /// Tapping ONLINE pushes [RouteName.onlineLobbyScreen]. The lobby
-  /// returns either a `String` match id (random match found, room
-  /// joined, or room created and joined) or `null` (cancelled).
-  /// In Pass 2 we surface the match id via a snackbar — the actual
-  /// game-screen integration arrives in Pass 4.
+  /// **PLAY ONLINE is hidden for now** — the matchmaking + room flow
+  /// is built (see `lib/views/online/`) but ships gated to internal
+  /// builds only until the Firebase Blaze plan is enabled. Re-add the
+  /// `GlassActionCard` for ONLINE here when launching that feature;
+  /// `_onPlayOnline` and friends are intentionally kept around so the
+  /// re-enable is one card, not a re-implementation.
   Widget _buildActionRow({final bool compact = false}) {
-    final double spacing = compact ? 10 : 14;
-    final bool canPlayOnline = _canPlayOnline;
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
@@ -490,17 +527,6 @@ class _HomeScreenState extends State<HomeScreen>
           compact: compact,
           onTap: () =>
               Navigator.of(context).pushNamed(RouteName.guideScreen),
-        ),
-        SizedBox(width: spacing),
-        GlassActionCard(
-          icon: Icons.public_rounded,
-          label: 'PLAY\nONLINE',
-          // Locked while the welcome-card flow is still pending —
-          // the online flow needs a confirmed profile to enqueue.
-          locked: !canPlayOnline,
-          lockedLabel: 'SOON',
-          compact: compact,
-          onTap: _onPlayOnline,
         ),
       ],
     );
@@ -518,6 +544,12 @@ class _HomeScreenState extends State<HomeScreen>
   /// through here. Bloc state is reset first so the new match starts
   /// from `GameState.initial()` and inherits the wire state cleanly
   /// on the first sync.
+  ///
+  /// Currently unused — the bottom action row doesn't render the
+  /// ONLINE card while 1v1 is gated behind the Blaze plan. Restoring
+  /// the card is a one-line change in [_buildActionRow]; this method
+  /// stays so the wiring is ready.
+  // ignore: unused_element
   Future<void> _onPlayOnline() async {
     if (!_canPlayOnline) return;
     final String? matchId = await Navigator.of(context).pushNamed<String?>(
@@ -603,6 +635,61 @@ class _CircleIconButton extends StatelessWidget {
             ),
             child: Icon(icon, size: 22, color: Colors.white),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Circular avatar button shown in the home top-bar's left slot. Pulls
+/// the user's avatar emoji from [UserService.profile] (or falls back
+/// to a generic profile glyph if no profile exists yet — e.g. the
+/// welcome card hasn't been confirmed). Wrapped in a gold ring so it
+/// reads as a primary action, not a status indicator.
+class _ProfileAvatarButton extends StatelessWidget {
+  const _ProfileAvatarButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(final BuildContext context) {
+    final UserService user = UserService.instance;
+    final String? avatarId = user.profile?.avatarId;
+    final String emoji =
+        avatarId != null ? HandleGenerator.emojiFor(avatarId) : '👤';
+    final bool hasProfile = user.profile != null;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const RadialGradient(
+            center: Alignment(-0.25, -0.35),
+            colors: <Color>[
+              Color(0xFF333333),
+              Color(0xFF111111),
+            ],
+          ),
+          border: Border.all(
+            color: hasProfile
+                ? AppColors.goldShine
+                : Colors.white.withValues(alpha: 0.4),
+            width: 2,
+          ),
+          boxShadow: hasProfile
+              ? <BoxShadow>[
+                  BoxShadow(
+                    color: AppColors.goldBright.withValues(alpha: 0.45),
+                    blurRadius: 10,
+                  ),
+                ]
+              : null,
+        ),
+        child: Center(
+          child: Text(emoji, style: const TextStyle(fontSize: 22)),
         ),
       ),
     );

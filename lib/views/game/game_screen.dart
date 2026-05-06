@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -128,21 +129,40 @@ class _GameScreenState extends State<GameScreen> {
           BlocConsumer<GameBloc, GameState>(
             listenWhen: (final GameState p, final GameState n) =>
                 // Trigger on goal start (for shake), on goal-flash end
-                // (to pop the promo right after the celebration), and on
-                // any return to the coin-toss phase (close any open card).
+                // (to pop the promo right after the celebration), on
+                // any return to the coin-toss phase (close any open
+                // card), and on the transition to game-over (record
+                // match stats).
                 (!p.showGoalFlash && n.showGoalFlash) ||
                     (p.showGoalFlash && !n.showGoalFlash) ||
                     (p.phase != GamePhase.coinToss &&
-                        n.phase == GamePhase.coinToss),
+                        n.phase == GamePhase.coinToss) ||
+                    (p.phase != GamePhase.gameOver &&
+                        n.phase == GamePhase.gameOver),
             listener: (final BuildContext context, final GameState state) {
               final GameBloc bloc = context.read<GameBloc>();
+              // Match just ended — record stats. Online matches will
+              // get their own server-side stats path; for v1 we only
+              // credit local matches (vs Human + vs AI), and we
+              // attribute the result to Red by convention (in vs AI
+              // the user is always Red; in vs Human the device owner
+              // is treated as Red so their profile reflects the
+              // device's match activity).
+              if (state.phase == GamePhase.gameOver) {
+                _recordMatchStats(state);
+                return;
+              }
               // New match started — close any lingering promo card AND
               // make sure the AI / match timer aren't left paused from
-              // a previous goal.
+              // a previous goal. Also reset the stats-recorded latch
+              // so the next gameOver transition credits the new
+              // match (otherwise back-to-back rematches would silently
+              // skip recording after the first one).
               if (state.phase == GamePhase.coinToss) {
                 if (_showGoalAd) {
                   setState(() => _showGoalAd = false);
                 }
+                _statsRecorded = false;
                 _aiController?.resume();
                 bloc.resumeTimer();
                 return;
@@ -266,6 +286,40 @@ class _GameScreenState extends State<GameScreen> {
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
+  }
+
+  /// Idempotent within a single match: the gameOver listener fires
+  /// exactly once per transition, but we add an extra guard via
+  /// [_statsRecorded] so a future change to the listener can't
+  /// accidentally double-credit.
+  bool _statsRecorded = false;
+
+  /// Persist this match's outcome to the user's profile via
+  /// [UserService.bumpStats]. Skipped for online matches (those will
+  /// be credited server-side once the Cloud Function pipeline is
+  /// live). Also skipped if the user has no profile yet (e.g. they
+  /// somehow bypassed the welcome card — defensive).
+  void _recordMatchStats(final GameState state) {
+    if (_statsRecorded) return;
+    _statsRecorded = true;
+
+    final GameMode mode = SettingsService.instance.gameMode;
+    if (mode == GameMode.vsOnline) return;
+    if (UserService.instance.profile == null) return;
+
+    final int red = state.redScore;
+    final int blue = state.blueScore;
+    final bool won = red > blue;
+    final bool drawn = red == blue;
+
+    // Red is "the user" by convention. Goals scored = Red's goals,
+    // goals conceded = Blue's goals.
+    unawaited(UserService.instance.bumpStats(
+      won: won,
+      drawn: drawn,
+      goalsScored: red,
+      goalsConceded: blue,
+    ));
   }
 
   Widget _buildContent(final BuildContext context) {

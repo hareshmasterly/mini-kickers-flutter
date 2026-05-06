@@ -6,6 +6,7 @@ class RouteName {
   static const String gameScreen = '/game';
   static const String settingsScreen = '/settings';
   static const String guideScreen = '/guide';
+  static const String profileScreen = '/profile';
 
   // ── Online 1v1 (Pass 2) ─────────────────────────────────────────
   /// Hub screen with three options: random match, create room, join

@@ -147,6 +147,43 @@ class UserService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Generate a fresh pending handle from the user's typed name.
+  /// Empty / non-letter input falls back to a random handle (via
+  /// [HandleGenerator.fromName]). Preserves the currently picked
+  /// avatar so typing doesn't reset the face the user already chose.
+  ///
+  /// Called from the welcome card as the user types — debounce in
+  /// the caller (~250 ms) is recommended to avoid thrashing the
+  /// listener on every keystroke.
+  void setPendingFromName(final String name) {
+    if (_profile != null) return;
+    final String? keepAvatar = _pendingHandle?.avatarId;
+    _pendingHandle = HandleGenerator.fromName(
+      name,
+      keepAvatarId: keepAvatar,
+    );
+    notifyListeners();
+  }
+
+  /// Re-roll the *number suffix only* on a name-based pending
+  /// handle. Used by the welcome card's "PICK ANOTHER NUMBER" path
+  /// when the user has typed a name — they keep the name + avatar
+  /// but get a fresh number to dodge a "taken" outcome at confirm
+  /// time.
+  void rerollNumber() {
+    if (_profile != null) return;
+    final GeneratedHandle? current = _pendingHandle;
+    if (current == null) return;
+    // Re-derive from the existing display name (which is the typed
+    // name with no digits) so we don't accidentally re-roll the
+    // adjective-role pair as a side effect.
+    _pendingHandle = HandleGenerator.fromName(
+      current.displayName,
+      keepAvatarId: current.avatarId,
+    );
+    notifyListeners();
+  }
+
   /// Persist the pending handle to Firestore and create the user
   /// profile. Tries up to 5 times with re-rolls if the chosen handle
   /// collides with an existing reservation in `handles/`.
@@ -259,6 +296,162 @@ class UserService extends ChangeNotifier {
     }
   }
 
+  /// True when the user is allowed to change their handle right now.
+  /// Returns true for users who have never changed it, otherwise
+  /// checks against [handleChangeCooldown].
+  bool get canChangeHandle {
+    final Timestamp? changedAt = _profile?.handleChangedAt;
+    if (changedAt == null) return true;
+    final DateTime next =
+        changedAt.toDate().add(handleChangeCooldown);
+    return DateTime.now().isAfter(next);
+  }
+
+  /// When the user can next change their handle. Null when no
+  /// cooldown is active (i.e. [canChangeHandle] is true).
+  DateTime? get nextHandleChangeAt {
+    final Timestamp? changedAt = _profile?.handleChangedAt;
+    if (changedAt == null) return null;
+    final DateTime next =
+        changedAt.toDate().add(handleChangeCooldown);
+    if (DateTime.now().isAfter(next)) return null;
+    return next;
+  }
+
+  /// Update the user's avatar in Firestore + local cache. Single-field
+  /// write; no uniqueness constraints, so this is fast and never
+  /// fails on collision.
+  Future<bool> changeAvatar(final String avatarId) async {
+    if (_uid == null || _profile == null) return false;
+    if (avatarId.isEmpty || avatarId == _profile!.avatarId) return true;
+    try {
+      await _db.collection(_usersCollection).doc(_uid).update(
+        <String, dynamic>{'avatar_id': avatarId},
+      );
+      _profile = _profile!.copyWith(avatarId: avatarId);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('UserService: changeAvatar failed → $e');
+      return false;
+    }
+  }
+
+  /// Atomically swap the user's handle: free the old reservation in
+  /// `handles/`, claim the new one, and update the profile doc with
+  /// the new handle + a fresh `handle_changed_at` timestamp.
+  ///
+  /// Returns one of:
+  ///   • `HandleChangeResult.ok` — success
+  ///   • `HandleChangeResult.cooldown` — within the 7-day window
+  ///   • `HandleChangeResult.taken` — handle already exists
+  ///   • `HandleChangeResult.invalid` — handle empty / same as current
+  ///   • `HandleChangeResult.failed` — Firestore error
+  Future<HandleChangeResult> changeHandle(final String newHandle) async {
+    if (_uid == null || _profile == null) {
+      return HandleChangeResult.failed;
+    }
+    final String trimmed = newHandle.trim();
+    if (trimmed.isEmpty || trimmed == _profile!.handle) {
+      return HandleChangeResult.invalid;
+    }
+    if (!canChangeHandle) return HandleChangeResult.cooldown;
+
+    final String newLower = trimmed.toLowerCase();
+    final String oldLower = _profile!.handleLower;
+
+    final DocumentReference<Map<String, dynamic>> newRef =
+        _db.collection(_handlesCollection).doc(newLower);
+    final DocumentReference<Map<String, dynamic>> oldRef =
+        _db.collection(_handlesCollection).doc(oldLower);
+    final DocumentReference<Map<String, dynamic>> userRef =
+        _db.collection(_usersCollection).doc(_uid);
+
+    try {
+      final HandleChangeResult result = await _db.runTransaction<
+          HandleChangeResult>((final Transaction tx) async {
+        final DocumentSnapshot<Map<String, dynamic>> existing =
+            await tx.get(newRef);
+        if (existing.exists) {
+          // Allow re-claiming our own (case-only change), otherwise
+          // someone else owns it.
+          final String? existingUid = existing.data()?['uid'] as String?;
+          if (existingUid != _uid) return HandleChangeResult.taken;
+        }
+        final Timestamp ttl = _futureTtl;
+        // Reserve the new handle.
+        tx.set(newRef, <String, dynamic>{
+          'uid': _uid,
+          'created_at': FieldValue.serverTimestamp(),
+          'ttl': ttl,
+        });
+        // Free the old reservation (only if different from new).
+        if (oldLower != newLower && oldLower.isNotEmpty) {
+          tx.delete(oldRef);
+        }
+        // Update the profile.
+        tx.update(userRef, <String, dynamic>{
+          'handle': trimmed,
+          'handle_lower': newLower,
+          'display_name': _humanReadable(trimmed),
+          'handle_changed_at': FieldValue.serverTimestamp(),
+        });
+        return HandleChangeResult.ok;
+      });
+
+      if (result == HandleChangeResult.ok) {
+        // Re-fetch so timestamps populate locally.
+        final DocumentSnapshot<Map<String, dynamic>> fresh =
+            await userRef.get();
+        if (fresh.data() != null) {
+          _profile = UserProfile.fromMap(_uid!, fresh.data()!);
+        }
+        notifyListeners();
+      }
+      return result;
+    } catch (e) {
+      if (kDebugMode) debugPrint('UserService: changeHandle failed → $e');
+      return HandleChangeResult.failed;
+    }
+  }
+
+  /// Strip the trailing digits from a handle to produce a human-
+  /// readable display name (mirrors [HandleGenerator]'s convention
+  /// where "BraveTiger47" → "Brave Tiger"). Best-effort — falls back
+  /// to the raw handle if no transformation is obvious.
+  static String _humanReadable(final String handle) {
+    // Remove trailing digits.
+    final RegExp trailingDigits = RegExp(r'\d+$');
+    String stripped = handle.replaceAll(trailingDigits, '');
+    if (stripped.isEmpty) stripped = handle;
+    // Insert spaces before internal capitals (CamelCase → "Camel Case").
+    final RegExp camelBoundary = RegExp(r'(?<=[a-z])(?=[A-Z])');
+    return stripped.replaceAll(camelBoundary, ' ');
+  }
+
+  /// Quickly check whether a candidate handle is currently free.
+  /// Returns true if the handle is available, false if taken.
+  /// Used by the change-handle UI to debounce-validate input as the
+  /// user types.
+  Future<bool> isHandleAvailable(final String candidate) async {
+    final String trimmed = candidate.trim();
+    if (trimmed.isEmpty) return false;
+    if (_profile != null &&
+        trimmed.toLowerCase() == _profile!.handleLower) {
+      // The user's current handle "isn't taken" from their POV.
+      return true;
+    }
+    try {
+      final DocumentSnapshot<Map<String, dynamic>> snap = await _db
+          .collection(_handlesCollection)
+          .doc(trimmed.toLowerCase())
+          .get();
+      return !snap.exists;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Bump the user's match-end stats atomically. Called from
   /// game-over handling. Server-side `FieldValue.increment` ensures
   /// concurrent matches (rare in single-device play, common in online
@@ -295,3 +488,25 @@ class UserService extends ChangeNotifier {
     }
   }
 }
+
+/// Outcome of [UserService.changeHandle]. The profile screen maps
+/// these to user-facing snackbars / inline errors.
+enum HandleChangeResult {
+  /// Handle successfully reserved + profile updated.
+  ok,
+
+  /// Within the [UserService.handleChangeCooldown] window. UI should
+  /// show "Next change in Xd Yh".
+  cooldown,
+
+  /// Handle is already reserved by another user.
+  taken,
+
+  /// Empty / unchanged / fails client-side validation rules.
+  invalid,
+
+  /// Firestore write failed (network, permissions, etc.). UI should
+  /// show a generic "Try again" message.
+  failed,
+}
+
