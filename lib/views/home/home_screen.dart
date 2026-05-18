@@ -4,16 +4,16 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mini_kickers/bloc/game/game_bloc.dart';
+import 'package:mini_kickers/data/services/app_update_service.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:mini_kickers/data/models/ai_difficulty_option.dart';
 import 'package:mini_kickers/data/models/game_models.dart';
 import 'package:mini_kickers/data/services/settings_service.dart';
 import 'package:mini_kickers/routes/routes_name.dart';
 import 'package:mini_kickers/theme/app_colors.dart';
-import 'package:mini_kickers/data/services/app_update_service.dart';
 import 'package:mini_kickers/utils/analytics_helper.dart';
 import 'package:mini_kickers/utils/audio_helper.dart';
 import 'package:mini_kickers/utils/responsive.dart';
-import 'package:mini_kickers/views/home/widget/update_dialog.dart';
 import 'package:mini_kickers/views/game/game_screen.dart';
 import 'package:mini_kickers/views/home/widget/animated_title.dart';
 import 'package:mini_kickers/views/home/widget/buy_amazon_button.dart';
@@ -22,6 +22,7 @@ import 'package:mini_kickers/views/home/widget/glass_action_card.dart';
 import 'package:mini_kickers/views/home/widget/hero_showcase.dart';
 import 'package:mini_kickers/views/home/widget/mode_card.dart';
 import 'package:mini_kickers/views/home/widget/stadium_background.dart';
+import 'package:mini_kickers/views/home/widget/update_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -34,6 +35,11 @@ class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _entry;
 
+  /// Resolved version string from `pubspec.yaml` (via [PackageInfo]).
+  /// Null while the platform call is in flight; the footer shows the
+  /// brand line without a version until it resolves (~tens of ms).
+  String? _appVersion;
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +47,15 @@ class _HomeScreenState extends State<HomeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1400),
     )..forward();
+
+    // Fetch the app version once. PackageInfo.fromPlatform() reads
+    // from the embedded pubspec.yaml metadata so this stays in sync
+    // with the build automatically — no string to bump on each
+    // release.
+    PackageInfo.fromPlatform().then((final PackageInfo info) {
+      if (!mounted) return;
+      setState(() => _appVersion = info.version);
+    });
 
     // Start background music if enabled in settings
     WidgetsBinding.instance.addPostFrameCallback((final _) {
@@ -62,8 +77,8 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((final _) {
       Future<void>.delayed(const Duration(milliseconds: 600), () async {
         if (!mounted) return;
-        final UpdateCheckResult result =
-            await AppUpdateService.instance.check();
+        final UpdateCheckResult result = await AppUpdateService.instance
+            .check();
         if (!mounted || !result.shouldShow) return;
         await showUpdateDialog(context, result: result);
       });
@@ -196,10 +211,18 @@ class _HomeScreenState extends State<HomeScreen>
                   ? Icons.volume_up_rounded
                   : Icons.volume_off_rounded,
               onTap: () {
-                final bool newValue =
-                    !SettingsService.instance.soundEnabled;
+                final bool newValue = !SettingsService.instance.soundEnabled;
                 SettingsService.instance.setSoundEnabled(newValue);
-                if (newValue) AudioHelper.select();
+                // Single home-screen audio toggle controls both SFX and
+                // background music — users expect one "mute everything"
+                // button here, with finer-grained control in Settings.
+                SettingsService.instance.setMusicEnabled(newValue);
+                if (newValue) {
+                  AudioHelper.select();
+                  AudioHelper.startMusic();
+                } else {
+                  AudioHelper.stopMusic();
+                }
                 setState(() {});
               },
             ),
@@ -209,8 +232,7 @@ class _HomeScreenState extends State<HomeScreen>
               onTap: () async {
                 AudioHelper.select();
                 final GameBloc bloc = context.read<GameBloc>();
-                await Navigator.of(context)
-                    .pushNamed(RouteName.settingsScreen);
+                await Navigator.of(context).pushNamed(RouteName.settingsScreen);
                 if (!mounted) return;
                 // Apply any setting changes (match duration, music, etc.) live
                 bloc.add(const RefreshSettingsEvent());
@@ -280,24 +302,24 @@ class _HomeScreenState extends State<HomeScreen>
         final double gapAfterTitle = ultraShort
             ? 8
             : short
-                ? 14
-                : isTablet
-                    ? 48
-                    : 30;
+            ? 14
+            : isTablet
+            ? 48
+            : 30;
         final double gapAfterButton = ultraShort
             ? 8
             : short
-                ? 12
-                : isTablet
-                    ? 38
-                    : 24;
+            ? 12
+            : isTablet
+            ? 38
+            : 24;
         final double midGap = ultraShort
             ? 12
             : short
-                ? 16
-                : isTablet
-                    ? 36
-                    : 24;
+            ? 16
+            : isTablet
+            ? 36
+            : 24;
 
         return Row(
           children: <Widget>[
@@ -482,10 +504,16 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildFooter() {
     final double t = _e(0.7, 1.0);
+    // Render the version once it's resolved; until then, just the
+    // brand line. The fade-in path means the user almost never sees
+    // the version-less state in practice.
+    final String label = _appVersion == null
+        ? '© MINI KICKERS'
+        : '© MINI KICKERS  ·  v$_appVersion';
     return Opacity(
       opacity: t,
       child: Text(
-        '© MINI KICKERS  ·  v1.0',
+        label,
         style: TextStyle(
           color: Colors.white.withValues(alpha: 0.35),
           fontSize: 10,
@@ -524,4 +552,3 @@ class _CircleIconButton extends StatelessWidget {
     );
   }
 }
-
