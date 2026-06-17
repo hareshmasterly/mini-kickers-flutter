@@ -19,10 +19,14 @@ class TeamColors {
   static Color light(final Team team) =>
       team == Team.red ? redLight() : blueLight();
 
+  /// Display name for [team]. Routes through the AI-aware display
+  /// getters in [SettingsService] so VS AI matches show a single
+  /// fixed "AI" label for Blue while VS Human matches show the
+  /// user's customised name.
   static String name(final Team team) =>
       team == Team.red
-          ? SettingsService.instance.redName
-          : SettingsService.instance.blueName;
+          ? SettingsService.instance.displayRedName
+          : SettingsService.instance.displayBlueName;
 
   static String labelWithEmoji(final Team team) =>
       team == Team.red ? '🔴 ${name(team)}' : '🔵 ${name(team)}';

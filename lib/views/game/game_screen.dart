@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mini_kickers/ai/ai_controller.dart';
 import 'package:mini_kickers/theme/app_fonts.dart';
 import 'package:mini_kickers/bloc/game/game_bloc.dart';
 import 'package:mini_kickers/data/models/game_models.dart';
@@ -37,6 +38,30 @@ class _GameScreenState extends State<GameScreen> {
   /// dismisses the card or when a new match starts.
   bool _showGoalAd = false;
 
+  /// AI driver. Non-null only when [SettingsService.gameMode] is
+  /// `vsAi` at screen-mount time. Disposed in [dispose] so we don't
+  /// leak a bloc subscription if the user backs out mid-match.
+  AiController? _aiController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Defer until after the first frame so `context.read<GameBloc>()`
+    // has a fully resolved provider tree above us.
+    WidgetsBinding.instance.addPostFrameCallback((final _) {
+      if (!mounted) return;
+      if (SettingsService.instance.gameMode != GameMode.vsAi) return;
+      _aiController = AiController(bloc: context.read<GameBloc>());
+      _aiController!.start();
+    });
+  }
+
+  @override
+  void dispose() {
+    _aiController?.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(final BuildContext context) {
     return Scaffold(
@@ -60,15 +85,29 @@ class _GameScreenState extends State<GameScreen> {
                     (p.phase != GamePhase.coinToss &&
                         n.phase == GamePhase.coinToss),
             listener: (final BuildContext context, final GameState state) {
-              // New match started — close any lingering promo card.
+              final GameBloc bloc = context.read<GameBloc>();
+              // New match started — close any lingering promo card AND
+              // make sure the AI / match timer aren't left paused from
+              // a previous goal.
               if (state.phase == GamePhase.coinToss) {
                 if (_showGoalAd) {
                   setState(() => _showGoalAd = false);
                 }
+                _aiController?.resume();
+                bloc.resumeTimer();
                 return;
               }
               if (state.showGoalFlash) {
                 _shakeController.shake();
+                // Pause AI AND match timer the moment the goal flash
+                // starts. Two separate concerns:
+                //   • AI must not act behind an ad overlay.
+                //   • Match clock must not lose seconds while the user
+                //     is looking at an ad they didn't ask for.
+                // Resumed in the appropriate branch below once the
+                // overlay (if any) is dismissed.
+                _aiController?.pause();
+                bloc.pauseTimer();
                 return;
               }
               // Goal flash just ended.
@@ -79,10 +118,23 @@ class _GameScreenState extends State<GameScreen> {
               // [AdManager.shouldShowGoalInterstitial] and
               // [SettingsService.showAmazonAdOverlay].
               if (AdManager.instance.shouldShowGoalInterstitial()) {
-                AdManager.instance.showGoalInterstitial();
+                // Already paused above (AI + timer). Resume both once
+                // the interstitial dismisses.
+                AdManager.instance.showGoalInterstitial().then((final _) {
+                  if (!mounted) return;
+                  _aiController?.resume();
+                  bloc.resumeTimer();
+                });
               } else if (SettingsService.instance.showAmazonAdOverlay &&
                   !_showGoalAd) {
+                // Already paused. AI + timer resume inside the
+                // FirstGoalAdOverlay onDismiss callback below.
                 setState(() => _showGoalAd = true);
+              } else {
+                // No overlay → resume immediately so neither stays
+                // stuck paused for the rest of the match.
+                _aiController?.resume();
+                bloc.resumeTimer();
               }
             },
             builder: (final BuildContext context, final GameState state) {
@@ -109,6 +161,11 @@ class _GameScreenState extends State<GameScreen> {
                       onDismiss: () {
                         if (!mounted) return;
                         setState(() => _showGoalAd = false);
+                        // Overlay gone → safe for the AI to resume its
+                        // turn AND for the match clock to start
+                        // counting again.
+                        _aiController?.resume();
+                        context.read<GameBloc>().resumeTimer();
                       },
                     ),
                 ],
@@ -473,7 +530,7 @@ class _LegendBar extends StatelessWidget {
             children: <Widget>[
               Flexible(
                 child: Text(
-                  '⬤ ${SettingsService.instance.redName} — ATTACKS RIGHT',
+                  '⬤ ${TeamColors.name(Team.red)} — ATTACKS RIGHT',
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: TeamColors.redLight(),
@@ -486,7 +543,7 @@ class _LegendBar extends StatelessWidget {
               const SizedBox(width: 12),
               Flexible(
                 child: Text(
-                  '${SettingsService.instance.blueName} — ATTACKS LEFT ⬤',
+                  '${TeamColors.name(Team.blue)} — ATTACKS LEFT ⬤',
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.right,
                   style: TextStyle(

@@ -2,6 +2,53 @@ enum Team { red, blue }
 
 enum GamePhase { coinToss, roll, move, moveBall, gameOver }
 
+/// How the current match is being played.
+///
+/// `vsHuman` — local pass-and-play; both teams are controlled by humans
+/// sharing the device. This is the default.
+///
+/// `vsAi` — single-player; the human plays as Red and the AI plays as
+/// Blue. The mode is **not persisted across app launches**: every match
+/// is started fresh from the home screen, so the user picks their mode
+/// each time. AI difficulty (which IS persisted) lives in
+/// [SettingsService.aiDifficulty].
+enum GameMode { vsHuman, vsAi }
+
+/// AI tuning tier. The user picks this from the difficulty dialog when
+/// starting a VS AI match (or from Settings). Each tier maps to a set
+/// of scoring + randomness + delay knobs that ultimately come from the
+/// remote `app_settings.ai_settings` document — see
+/// [SettingsService.aiRandomFactor] / [aiThinkDelayMs] / [aiUseLookahead].
+enum AiDifficulty { easy, medium, hard }
+
+extension AiDifficultyX on AiDifficulty {
+  /// Stable string id used for SharedPreferences and the Firestore
+  /// `ai_default_difficulty` field.
+  String get id {
+    switch (this) {
+      case AiDifficulty.easy:
+        return 'easy';
+      case AiDifficulty.medium:
+        return 'medium';
+      case AiDifficulty.hard:
+        return 'hard';
+    }
+  }
+
+  static AiDifficulty? fromId(final String? raw) {
+    switch (raw) {
+      case 'easy':
+        return AiDifficulty.easy;
+      case 'medium':
+        return AiDifficulty.medium;
+      case 'hard':
+        return AiDifficulty.hard;
+      default:
+        return null;
+    }
+  }
+}
+
 class Pos {
   final int c;
   final int r;

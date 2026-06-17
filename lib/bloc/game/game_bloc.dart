@@ -42,6 +42,25 @@ class GameBloc extends Bloc<GameEvent, GameState> {
     });
   }
 
+  /// Pause the match countdown without changing any game state. Used
+  /// from the game screen when an ad overlay (Amazon promo, paid
+  /// interstitial, restart interstitial) covers the board — without
+  /// this, the user keeps "losing" match seconds while looking at an
+  /// ad they didn't ask to be there.
+  ///
+  /// Idempotent: calling [pauseTimer] when already paused is a no-op.
+  void pauseTimer() {
+    _matchTimer?.cancel();
+    _matchTimer = null;
+  }
+
+  /// Resume the match countdown after a [pauseTimer]. No-op if the
+  /// timer is already running. Safe to call from any phase.
+  void resumeTimer() {
+    if (_matchTimer != null) return;
+    _startTimer();
+  }
+
   Future<void> _onInitial(
     final InitialEvent event,
     final Emitter<GameState> emit,

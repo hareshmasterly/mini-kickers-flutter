@@ -39,6 +39,7 @@ class TeamSetupStrip extends StatelessWidget {
               child: _TeamChip(
                 team: Team.red,
                 name: s.redName,
+                isAi: false,
                 compact: compact,
                 isTablet: isTablet,
                 onTap: () => showTeamSetupDialog(context),
@@ -57,7 +58,14 @@ class TeamSetupStrip extends StatelessWidget {
             Flexible(
               child: _TeamChip(
                 team: Team.blue,
-                name: s.blueName,
+                // `displayBlueName` returns the fixed "AI" label in
+                // VS AI mode so the chip never shows a stale custom
+                // name from a previous VS Human session.
+                name: s.displayBlueName,
+                // In VS AI mode the Blue chip represents the AI
+                // opponent — show a small 🤖 marker so the user
+                // knows which team is the bot.
+                isAi: s.gameMode == GameMode.vsAi,
                 compact: compact,
                 isTablet: isTablet,
                 onTap: () => showTeamSetupDialog(context),
@@ -74,6 +82,7 @@ class _TeamChip extends StatelessWidget {
   const _TeamChip({
     required this.team,
     required this.name,
+    required this.isAi,
     required this.onTap,
     required this.compact,
     required this.isTablet,
@@ -81,6 +90,10 @@ class _TeamChip extends StatelessWidget {
 
   final Team team;
   final String name;
+
+  /// When true, prepends a 🤖 marker so the user knows this team is
+  /// controlled by the AI in VS AI mode.
+  final bool isAi;
   final VoidCallback onTap;
   final bool compact;
   final bool isTablet;
@@ -150,16 +163,31 @@ class _TeamChip extends StatelessWidget {
             ),
             SizedBox(width: innerGap),
             Flexible(
-              child: Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: nameFont,
-                  letterSpacing: 1.2,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Flexible(
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: nameFont,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  if (isAi) ...<Widget>[
+                    SizedBox(width: compact ? 4 : 6),
+                    Icon(
+                      Icons.smart_toy_rounded,
+                      size: editIcon + 1,
+                      color: Colors.white.withValues(alpha: 0.85),
+                    ),
+                  ],
+                ],
               ),
             ),
             SizedBox(width: compact ? 4 : 6),
@@ -305,11 +333,19 @@ class _TeamSetupDialogState extends State<_TeamSetupDialog> {
                   onCommit: s.setRedName,
                 ),
                 SizedBox(height: gapBetween),
-                PlayerNameTile(
-                  team: Team.blue,
-                  initialName: s.blueName,
-                  onCommit: s.setBlueName,
-                ),
+                // In VS AI mode, hide Blue's editable name tile — the
+                // AI opponent is always shown as a single fixed label
+                // ("AI"), not customisable. Replace with a read-only
+                // info row so the dialog still has visual balance.
+                // VS Human mode keeps both editors as before.
+                if (s.gameMode == GameMode.vsAi)
+                  const _AiOpponentRow()
+                else
+                  PlayerNameTile(
+                    team: Team.blue,
+                    initialName: s.blueName,
+                    onCommit: s.setBlueName,
+                  ),
                 SizedBox(height: gapBeforeDone),
                 _DoneButton(
                   compact: compact,
@@ -396,4 +432,91 @@ class _DoneButton extends StatelessWidget {
 String _firstLetter(final String s) {
   final String t = s.trim();
   return t.isEmpty ? '?' : t[0].toUpperCase();
+}
+
+/// Read-only row shown in place of Blue's [PlayerNameTile] when the
+/// match is VS AI. Mirrors the visual language of [PlayerNameTile]
+/// (avatar circle + label) so the dialog layout doesn't shift, but
+/// has no text field — the AI's name is fixed.
+class _AiOpponentRow extends StatelessWidget {
+  const _AiOpponentRow();
+
+  @override
+  Widget build(final BuildContext context) {
+    final Color base = TeamColors.primary(Team.blue);
+    final Color light = TeamColors.light(Team.blue);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  center: const Alignment(-0.3, -0.4),
+                  colors: <Color>[
+                    Color.lerp(base, Colors.white, 0.3)!,
+                    base,
+                  ],
+                ),
+                border: Border.all(color: light, width: 2),
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: base.withValues(alpha: 0.5),
+                    blurRadius: 10,
+                  ),
+                ],
+              ),
+              child: const Center(
+                child: Icon(
+                  Icons.smart_toy_rounded,
+                  color: Colors.white,
+                  size: 20,
+                  shadows: <Shadow>[
+                    Shadow(color: Colors.black54, blurRadius: 3),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    SettingsService.instance.displayBlueName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Playing against AI',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.55),
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

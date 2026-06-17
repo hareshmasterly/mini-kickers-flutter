@@ -12,7 +12,7 @@ class AnimatedToken extends StatefulWidget {
     required this.cell,
     required this.isSelected,
     required this.isSelectable,
-    required this.onTap,
+    this.onTap,
     this.isActiveTeam = false,
   });
 
@@ -32,7 +32,12 @@ class AnimatedToken extends StatefulWidget {
   /// the board without inviting a tap.
   final bool isActiveTeam;
 
-  final VoidCallback onTap;
+  /// Tap handler. When `null`, the token is rendered as normal but
+  /// the GestureDetector ignores taps. Used to gate "you can't select
+  /// this" cases (opponent's tokens, AI's tokens, non-move phases) so
+  /// the user gets no audio / animation feedback for taps that would
+  /// be rejected by the bloc anyway.
+  final VoidCallback? onTap;
 
   @override
   State<AnimatedToken> createState() => _AnimatedTokenState();
